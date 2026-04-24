@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+  />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0a0a12" />
+  <title>Mecka Rumble — v2</title>
+  <link rel="stylesheet" href="./styles.css" />
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+
+    <!-- ===== Top 60% : Combat viewport ===== -->
+    <section id="combat" aria-label="Combat viewport">
+      <canvas id="gl"></canvas>
+
+      <div id="hud" class="hud">
+        <div class="hud-row">
+          <div class="fighter-tag player">
+            <div class="name">PLAYER</div>
+            <div class="bar hp"><div class="fill" id="player-hp"></div></div>
+            <div class="bar bat"><div class="fill" id="player-bat"></div></div>
+          </div>
+          <div class="title">MECKA RUMBLE</div>
+          <div class="fighter-tag cpu">
+            <div class="name">CPU</div>
+            <div class="bar hp"><div class="fill" id="cpu-hp"></div></div>
+            <div class="bar bat"><div class="fill" id="cpu-bat"></div></div>
+          </div>
+        </div>
+        <div id="announcer" class="announcer"></div>
+        <div id="debug" class="debug"></div>
+      </div>
+
+      <button id="pause-btn" class="pause-btn" aria-label="Pause">II</button>
+    </section>
+
+    <!-- ===== Bottom 40% : Gesture input panel ===== -->
+    <section id="input-panel" aria-label="Gesture input panel">
+      <div class="hint hint-up">▲ Hold = SUPER</div>
+      <div class="hint hint-left">◀ Back = DODGE</div>
+      <div class="hint hint-right">Forward ▶ PUNCH / DASH</div>
+      <div class="hint hint-down">▼ Drag-Down = SHIELD</div>
+      <div class="hint hint-center">Tap = SHOOT</div>
+
+      <canvas id="trail"></canvas>
+
+      <div id="gesture-label" class="gesture-label">—</div>
+      <div id="lockout-label" class="lockout-label"></div>
+    </section>
+  </div>
+
+  <!-- ===== Pause modal (Resume / Restart / Difficulty) ===== -->
+  <div id="pause-modal" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="modal-title">PAUSED</div>
+      <div class="modal-sub">— BREATHE —</div>
+      <button class="modal-btn primary" data-action="resume">RESUME</button>
+      <button class="modal-btn" data-action="restart">RESTART MATCH</button>
+      <div class="diff-label">CPU DIFFICULTY</div>
+      <div class="difficulty-row">
+        <button class="diff-btn selected" data-diff="off">OFF</button>
+        <button class="diff-btn" data-diff="easy">EASY</button>
+        <button class="diff-btn" data-diff="medium">MED</button>
+        <button class="diff-btn" data-diff="hard">HARD</button>
+      </div>
+      <div class="diff-label">ANIMATION SPEED</div>
+      <div class="difficulty-row">
+        <button class="diff-btn selected" data-speed="1">1x</button>
+        <button class="diff-btn" data-speed="1.25">1.25x</button>
+        <button class="diff-btn" data-speed="1.5">1.5x</button>
+        <button class="diff-btn" data-speed="2">2x</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== End-of-fight modal (Rematch / Change Difficulty) ===== -->
+  <div id="end-modal" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="modal-title" id="end-title">K.O.</div>
+      <div class="modal-sub"  id="end-sub">FIGHT OVER</div>
+      <button class="modal-btn primary" data-action="rematch">REMATCH</button>
+      <button class="modal-btn" data-action="end-restart">CHANGE DIFFICULTY</button>
+    </div>
+  </div>
+
+  <!-- Rotate-to-portrait overlay -->
+  <div id="rotate-overlay" class="rotate-overlay">
+    <div class="rotate-inner">
+      <div class="rotate-icon">⟳</div>
+      <div>Please rotate your device to portrait</div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
