@@ -79,11 +79,14 @@ export async function loadAllAssets() {
     const clip = anims[0];
     for (const track of clip.tracks) {
       if (HIPS_POS_RE.test(track.name)) {
-        // Zero all 3 components.  The dying animation is the only
-        // one that needs Y drop, and that's driven by the bones'
-        // rotations (the character crumples), not hip translation.
-        for (let j = 0; j < track.values.length; j++) {
-          track.values[j] = 0;
+        // Zero only X (i) and Z (i+2) — the horizontal root motion
+        // that makes the character translate forward in DashForward,
+        // backward in DodgeBackward, etc.  KEEP Y (i+1) because the
+        // hips bone translates the entire body upward at runtime;
+        // zeroing it makes the character sink into the floor.
+        for (let j = 0; j < track.values.length; j += 3) {
+          track.values[j]     = 0;  // X
+          track.values[j + 2] = 0;  // Z
         }
       }
     }

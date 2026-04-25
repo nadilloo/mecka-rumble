@@ -26,7 +26,10 @@ export class ProjectileManager {
     const color  = isSuper ? P.superColor  : P.shootColor;
     const speed  = isSuper ? P.superSpeed  : P.shootSpeed;
     const life   = isSuper ? P.superLifetime : P.shootLifetime;
-    const damage = isSuper ? D.superShot : D.shoot;
+    // Damage = action descriptor's damage × shooter's POWER stat.
+    const baseDmg = (isSuper ? CONFIG.fighter.actions.super.damage
+                              : CONFIG.fighter.actions.shoot.damage);
+    const damage  = baseDmg * (fromFighter.stats?.power ?? 1);
 
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(radius, 14, 10),

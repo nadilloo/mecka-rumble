@@ -88,9 +88,11 @@ export class FighterAI {
 
     /* ---- Range-based offense ---- */
     if (gap <= F.punchRange) {
-      // Melee range.
+      // Melee range — pick jab or hook based on aggression.
       if (Math.random() < diff.punchChanceClose) {
-        if (!me.punch()) me.dodgeBack(opp.root.position.x);
+        const aggressive = Math.random() < 0.4;
+        const ok = aggressive ? me.hook() : me.jab();
+        if (!ok) me.dodgeBack(opp.root.position.x);
       } else {
         me.dodgeBack(opp.root.position.x);
       }

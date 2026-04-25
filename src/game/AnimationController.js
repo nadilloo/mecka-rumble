@@ -21,9 +21,16 @@
 import * as THREE from 'three';
 
 // Which states map to which clip name when a direct clip is missing.
+// We fall back to existing Mixamo clips until dedicated animations
+// are authored for the new moves.
 const FALLBACKS = {
-  super: 'shoot',
-  hit:   'dodge',
+  jab:      'punch',
+  hook:     'punch',
+  uppercut: 'punch',
+  sweep:    'punch',
+  super:    'shoot',
+  counter:  'dodge',
+  hit:      'dodge',
 };
 
 // Which actions should loop forever until stopped.
@@ -70,12 +77,34 @@ export class AnimationController {
 
     if (target === this.current && !LOOPING.has(target)) {
       // Re-fire a one-shot.
-      this.actions[target].reset().play();
+      this.actions[target].reset().setEffectiveTimeScale(1).play();
       return;
     }
     if (target === this.current) return;
 
     this._fadeTo(target, FADE);
+    if (this.actions[target]) this.actions[target].setEffectiveTimeScale(1);
+  }
+
+  /** Play a clip but stretch/shrink its playback so it lasts exactly
+   *  `targetSec` seconds.  Useful for action descriptors with explicit
+   *  frame budgets — a 10-frame jab can use the same Punching clip as
+   *  a 25-frame uppercut, just played faster. */
+  playFor(name, targetSec) {
+    let target = name;
+    if (!this.actions[target] && FALLBACKS[target]) target = FALLBACKS[target];
+    if (!this.actions[target]) target = 'idle';
+
+    const action = this.actions[target];
+    const clipDur = action.getClip().duration;
+    const scale = clipDur / Math.max(0.05, targetSec);
+
+    if (target === this.current) {
+      action.reset().setEffectiveTimeScale(scale).play();
+      return;
+    }
+    this._fadeTo(target, FADE * 0.6);   // shorter fade for cancels
+    action.setEffectiveTimeScale(scale);
   }
 
   /** Explicitly end a looping clip (like shield) and return to idle. */

@@ -1,17 +1,23 @@
 /* ============================================================
-   Fighter.js — Jammo edition
-   Builds a Fighter by cloning a pre-loaded Jammo skinned mesh,
-   applying the appropriate red/blue albedo, and driving its
-   Mixamo-rigged animations via AnimationController (mixer).
+   Fighter.js
+   Skinned Jammo character with fighting-game style action timing.
 
-   Side-locked collision and the X-clamp against the opponent
-   are unchanged from before; only the mesh and animation
-   backends changed.
-
-   Facing (relative to world X axis):
-     - this.facing = +1 → should face +X (right).  Character's
-       modelled forward is +Z, so rotate +π/2 around Y.
-     - this.facing = -1 → face -X (left).  Rotate -π/2 around Y.
+   Key concepts:
+     - Every action is described by a frame budget:
+         startup  → committed; another action cannot interrupt
+         active   → hit window
+         recovery → CAN be cancelled into another action
+       This is what makes the controls feel responsive: as soon
+       as a jab's recovery starts, you can already chain a hook,
+       a dodge, an uppercut, etc.
+     - Action descriptors live in CONFIG.fighter.actions and are
+       expressed in 60fps frames.  Each frame = 1/60 s.
+     - Loadout: each fighter is built with a parts loadout that
+       attaches small overlay meshes to specific bones (so they
+       follow animation) and applies stat multipliers:
+         power → outgoing damage
+         armor → incoming damage  (lower = tougher)
+         speed → moveSpeed
    ============================================================ */
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
@@ -22,44 +28,43 @@ import { AnimationController } from './AnimationController.js';
 const C = CONFIG.fighter;
 const B = CONFIG.battery;
 const D = CONFIG.damage;
+const ACT = C.actions;
+const FRAME = 1 / 60;
+
+// Phase enum within an action.
+const PHASE = { STARTUP: 0, ACTIVE: 1, RECOVERY: 2 };
 
 export class Fighter {
-  /**
-   * @param {object} opts
-   *  - isPlayer, side (-1|+1), startX
-   *  - assets: the manifest returned by AssetLoader.loadAllAssets()
-   *  - onShoot, onDamageDealt
-   */
   constructor(opts) {
     this.isPlayer       = !!opts.isPlayer;
     this.side           = opts.side || (opts.isPlayer ? -1 : 1);
     this.onShoot        = opts.onShoot || (() => {});
     this.onDamageDealt  = opts.onDamageDealt || (() => {});
 
+    // ---- Loadout & derived stats ----
+    this.loadout = opts.loadout || { ...CONFIG.defaultLoadout };
+    this.stats = this._computeStats(this.loadout);
+
+    // ---- Combat state ----
     this.state = 'idle';
-    this.stateTime = 0;
+    this.action = null;          // current active action descriptor (or null)
     this.invulnTime = 0;
     this.lockoutTime = 0;
     this.recentDamageTime = 0;
     this.shielding = false;
+    this.counterReady = false;   // true during the parry window
+    this.stunTime = 0;
 
     this.hp = C.healthMax;
     this.battery = C.batteryMax;
+    this.facing = this.side > 0 ? -1 : 1;
 
-    this.facing = this.side > 0 ? -1 : 1;  // face the center at start
-
-    // Build the mesh — clones the shared Jammo armature + meshes.
+    // Build mesh.
     this.root = this._buildMesh(opts.assets);
     this.root.position.x = opts.startX || 0;
     this.root.position.y = 0;
-
-    // Fighting-stance yaw.  Player faces +X (right) = orthodox
-    // looking right.  CPU faces -X (left), and with the scale.x = -1
-    // mirror applied to its cloned mesh in _buildMesh, that orthodox
-    // pose reads as southpaw looking left.
     this.root.rotation.y = this.side < 0 ? Math.PI / 2 : -Math.PI / 2;
 
-    // Animation backend.
     this.anim = new AnimationController(this._animRoot, opts.assets.clips);
 
     // Shield bubble.
@@ -73,29 +78,27 @@ export class Fighter {
     this.root.add(this.shieldMesh);
 
     this._moveTarget = this.root.position.x;
-    this._moveSpeed  = C.moveSpeed;
+  }
+
+  _computeStats(loadout) {
+    let power = 1, armor = 1, speed = 1;
+    for (const [cat, id] of Object.entries(loadout)) {
+      const part = (CONFIG.parts[cat] || []).find(p => p.id === id);
+      if (!part) continue;
+      power *= part.stats.power;
+      armor *= part.stats.armor;
+      speed *= part.stats.speed;
+    }
+    return { power, armor, speed };
   }
 
   _buildMesh(assets) {
-    // Root group that holds the cloned character + shadow + shield bubble.
     const root = new THREE.Group();
 
-    // Clone the skinned character.  SkeletonUtils.clone is required
-    // because a naive THREE.Object3D.clone() shares the Skeleton and
-    // bone references across clones, which breaks animation.
     const cloned = cloneSkinned(assets.baseScene);
-    cloned.scale.setScalar(CONFIG.fighter.meshScale);
-    // Mirror the CPU on its local X axis.  Combined with the root
-    // yaw of -π/2 (set in the constructor), this turns Jammo's
-    // native orthodox stance into a visual southpaw stance — the
-    // "forward" hand ends up on the character's right side instead
-    // of its left, giving a classic Street Fighter style mirror of
-    // the player.  Three.js handles the negative-determinant winding
-    // order automatically for skinned meshes.
-    if (!this.isPlayer) cloned.scale.x *= -1;
+    cloned.scale.setScalar(C.meshScale);
+    if (!this.isPlayer) cloned.scale.x *= -1;   // mirror CPU stance
 
-    // Apply per-fighter albedo + shared normal map.  Replace materials
-    // on the body meshes (the "eyes" material is left alone).
     const albedo = this.isPlayer ? assets.textures.albedoRed
                                  : assets.textures.albedoBlue;
     const normal = assets.textures.normalMap;
@@ -104,42 +107,32 @@ export class Fighter {
       if (!obj.isSkinnedMesh && !obj.isMesh) return;
       obj.castShadow = true;
       obj.receiveShadow = true;
-
-      const mat = obj.material;
-      if (!mat) return;
-      const matName = (mat.name || '').toLowerCase();
-
+      const matName = (obj.material?.name || '').toLowerCase();
       if (matName.includes('eye')) {
-        // Keep eyes bright and self-lit so they read clearly.
-        const eyeMat = new THREE.MeshStandardMaterial({
+        obj.material = new THREE.MeshStandardMaterial({
           color: 0xffffff,
           emissive: this.isPlayer ? 0x9fd7ff : 0xffe788,
           emissiveIntensity: 1.4,
-          roughness: 0.2,
-          metalness: 0.1,
+          roughness: 0.2, metalness: 0.1,
         });
-        obj.material = eyeMat;
       } else {
-        // Body: apply albedo + normal, sensible PBR defaults.
-        const bodyMat = new THREE.MeshStandardMaterial({
-          map: albedo,
-          normalMap: normal,
-          roughness: 0.55,
-          metalness: 0.25,
+        obj.material = new THREE.MeshStandardMaterial({
+          map: albedo, normalMap: normal,
+          roughness: 0.55, metalness: 0.25,
         });
-        obj.material = bodyMat;
       }
     });
 
     root.add(cloned);
-    this._animRoot = cloned;     // AnimationMixer attaches here
+    this._animRoot = cloned;
 
-    // Ground shadow disc.
+    // Attach part overlays (head, arms, torso, legs).
+    this._attachOverlays(cloned);
+
+    // Ground shadow.
     const shadow = new THREE.Mesh(
       new THREE.CircleGeometry(0.85, 24),
-      new THREE.MeshBasicMaterial({
-        color: 0x000000, transparent: true, opacity: 0.42,
-      })
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.42 })
     );
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.02;
@@ -148,82 +141,165 @@ export class Fighter {
     return root;
   }
 
-  /* --------------------- Stat helpers --------------------- */
+  /** Walk the loadout and parent overlay meshes to the correct bones. */
+  _attachOverlays(charRoot) {
+    // Build a bone-name lookup once.
+    const bones = {};
+    charRoot.traverse((o) => { if (o.isBone) bones[o.name] = o; });
+
+    const addOverlay = (def) => {
+      if (!def) return;
+      const bone = bones[def.bone];
+      if (!bone) return;
+      let geo;
+      const s = def.size;
+      switch (def.shape) {
+        case 'box':    geo = new THREE.BoxGeometry(s[0], s[1], s[2]); break;
+        case 'sphere': geo = new THREE.SphereGeometry(s[0], 14, 10); break;
+        case 'cyl':    geo = new THREE.CylinderGeometry(s[0], s[1], s[2], 14); break;
+        case 'cone':   geo = new THREE.ConeGeometry(s[0], s[1], 14); break;
+        default: return;
+      }
+      const mat = new THREE.MeshStandardMaterial({
+        color: def.color || 0x888888, roughness: 0.5, metalness: 0.4,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      const o = def.offset || [0, 0, 0];
+      mesh.position.set(o[0], o[1], o[2]);
+      bone.add(mesh);
+    };
+
+    for (const [cat, id] of Object.entries(this.loadout)) {
+      const part = (CONFIG.parts[cat] || []).find(p => p.id === id);
+      if (!part) continue;
+      addOverlay(part.overlay);
+      addOverlay(part.overlay2);   // for symmetric leg parts
+    }
+  }
+
+  /* ---------------- Stat helpers ---------------- */
   hpFrac()  { return clamp(this.hp / C.healthMax, 0, 1); }
   batFrac() { return clamp(this.battery / C.batteryMax, 0, 1); }
   isKO()    { return this.state === 'ko'; }
-  isBusy()  { return ['dashing','dodging','punching','shooting','supering','hit','ko'].includes(this.state); }
+  isShielding() { return this.shielding; }
 
+  /** Phase of the current action, or null if not in an action. */
+  _phase() {
+    if (!this.action) return null;
+    const a = this.action;
+    if (a.elapsedFrames < a.startup) return PHASE.STARTUP;
+    if (a.elapsedFrames < a.startup + a.active) return PHASE.ACTIVE;
+    return PHASE.RECOVERY;
+  }
+
+  /** Can this fighter start a new action right now?
+   *  Yes if: idle, OR in the recovery phase of the current action. */
   canAct(cost = 0) {
-    if (this.isKO() || this.lockoutTime > 0) return false;
-    if (this.isBusy() && this.state !== 'shielding') return false;
-    return this.battery >= cost;
+    if (this.isKO() || this.lockoutTime > 0 || this.stunTime > 0) return false;
+    if (this.battery < cost) return false;
+    if (this.action) {
+      const ph = this._phase();
+      if (ph !== PHASE.RECOVERY) return false;
+    }
+    return true;
   }
 
   _spend(cost) {
     this.battery = Math.max(0, this.battery - cost);
     if (this.battery <= 0) this.lockoutTime = B.emptyLockoutSeconds;
   }
-  _setState(s, dur) { this.state = s; this.stateTime = dur; }
 
-  /* --------------------- Actions --------------------- */
+  /** Begin an action by name.  Reads the descriptor from CONFIG. */
+  _startAction(name) {
+    const d = ACT[name];
+    if (!d) return false;
+    this.action = {
+      name,
+      startup: d.startup, active: d.active, recovery: d.recovery,
+      total: d.startup + d.active + d.recovery,
+      hitFrame: d.hitFrame,
+      damage: d.damage,
+      hitChecked: false,
+      elapsedFrames: 0,
+      durationSec: (d.startup + d.active + d.recovery) * FRAME,
+    };
+    this.state = name;
+    // Drop shield when committing to an attack.
+    if (this.shielding) this._setShield(false);
+    // Clear counter window if we were in one.
+    this.counterReady = false;
+    // Tell the animator to play this action and stretch the clip
+    // to the action's frame budget so timing matches visuals.
+    this.anim.playFor(name, this.action.durationSec);
+    return true;
+  }
+
+  /* ---------------- Action API ---------------- */
+  jab()      { return this.canAct(ACT.jab.cost)      && this._startAction('jab'); }
+  hook()     { return this.canAct(ACT.hook.cost)     && this._startAction('hook'); }
+  uppercut() { return this.canAct(ACT.uppercut.cost) && this._startAction('uppercut'); }
+  sweep()    { return this.canAct(ACT.sweep.cost)    && this._startAction('sweep'); }
+
+  shoot() {
+    if (!this.canAct(ACT.shoot.cost)) return false;
+    this._spend(ACT.shoot.cost);
+    this._startAction('shoot');
+    this._pendingShot = { kind: 'shoot', frames: ACT.shoot.hitFrame };
+    return true;
+  }
+  superShot() {
+    if (!this.canAct(ACT.super.cost)) return false;
+    this._spend(ACT.super.cost);
+    this._startAction('super');
+    this._pendingShot = { kind: 'super', frames: ACT.super.hitFrame };
+    return true;
+  }
+
   dashForward(opponentX) {
-    if (!this.canAct(B.dashCost)) return false;
-    this._spend(B.dashCost);
-    this._setState('dashing', C.dashDuration);
-    this.anim.play('dash', C.dashDuration);
+    if (!this.canAct(ACT.dash.cost)) return false;
+    this._spend(ACT.dash.cost);
+    this._startAction('dash');
     const dir = sign(opponentX - this.root.position.x) || this.facing;
     this._moveTarget = this.root.position.x + dir * C.dashDistance;
     return true;
   }
-
   dodgeBack(opponentX) {
-    if (!this.canAct(B.dodgeCost)) return false;
-    this._spend(B.dodgeCost);
-    this._setState('dodging', C.dodgeDuration);
-    this.anim.play('dodge', C.dodgeDuration);
+    if (!this.canAct(ACT.dodge.cost)) return false;
+    this._spend(ACT.dodge.cost);
+    this._startAction('dodge');
     const dir = sign(this.root.position.x - opponentX) || -this.facing;
     this._moveTarget = this.root.position.x + dir * C.dodgeDistance;
     return true;
   }
-
-  punch() {
-    if (!this.canAct(B.punchCost)) return false;
-    this._spend(B.punchCost);
-    this._setState('punching', C.punchDuration);
-    this.anim.play('punch', C.punchDuration);
-    this._punchHitChecked = false;
+  counter() {
+    if (!this.canAct(ACT.counter.cost)) return false;
+    this._spend(ACT.counter.cost);
+    this._startAction('counter');
+    this.counterReady = true;
     return true;
   }
 
-  shoot() {
-    if (!this.canAct(B.shootCost)) return false;
-    this._spend(B.shootCost);
-    this._setState('shooting', C.shootDuration);
-    this.anim.play('shoot', C.shootDuration);
-    this._pendingShot = { kind: 'shoot', at: C.shootDuration * 0.4 };
-    return true;
+  /** Spend the action's cost (called once at startup-phase commit). */
+  _spendActionCost() {
+    if (!this.action || this.action._spent) return;
+    const d = ACT[this.action.name];
+    if (d.cost) this._spend(d.cost);
+    this.action._spent = true;
   }
 
-  superShot() {
-    if (!this.canAct(B.superCost)) return false;
-    this._spend(B.superCost);
-    this._setState('supering', C.superChargeDuration + 0.2);
-    this.anim.play('super', C.superChargeDuration + 0.2);
-    this._pendingShot = { kind: 'super', at: C.superChargeDuration };
-    return true;
-  }
+  /* ---------------- Shield ---------------- */
+  toggleShield() { this._setShield(!this.shielding); }
+  setShielding(on) { this._setShield(on); }
+  _setShield(on) {
+    if (this.isKO() || this.lockoutTime > 0) on = false;
+    if (this.action && this._phase() !== PHASE.RECOVERY) on = false;
 
-  setShielding(on) {
-    if (this.isKO() || this.lockoutTime > 0 || this.isBusy()) {
-      this.shielding = false;
-      this.shieldMesh.userData.target = 0;
-      return;
-    }
     if (on && !this.shielding) {
       this.shielding = true;
       this.state = 'shielding';
-      this.anim.play('shield', 999);
+      this.action = null;
+      this.anim.play('shield');
       this.shieldMesh.userData.target = 1;
     } else if (!on && this.shielding) {
       this.shielding = false;
@@ -233,124 +309,160 @@ export class Fighter {
     }
   }
 
-  /** Called externally when this fighter wins the round. */
-  celebrate() { this.anim.play('victory'); }
+  celebrate() { this.anim.play('victory'); this.action = null; }
 
-  takeHit(damage, fromX) {
+  /* ---------------- Damage in ---------------- */
+  takeHit(damage, fromX, isPunch = false) {
     if (this.invulnTime > 0 || this.isKO()) return 0;
-    let dealt = damage;
+
+    // Active-phase invulnerability (e.g. dodge i-frames).
+    if (this.action && this._phase() === PHASE.ACTIVE
+        && C.activeInvuln.includes(this.action.name)) {
+      return 0;
+    }
+
+    // Counter parries punches into stun on the attacker.
+    if (this.counterReady && isPunch && this.action?.name === 'counter') {
+      // Caller handles attacker stun — return -1 to signal a parry.
+      this.counterReady = false;
+      return -1;
+    }
+
+    let dealt = damage * this.stats.armor;
     if (this.shielding) dealt *= D.shieldReduction;
     this.hp = Math.max(0, this.hp - dealt);
     this.invulnTime = C.invulnDuration;
     this.recentDamageTime = 1.5;
 
     if (this.hp <= 0) {
-      this._setState('ko', 999);
-      this.anim.play('ko', 1.2);
-      this.setShielding(false);
+      this.state = 'ko';
+      this.action = null;
+      this.anim.play('ko');
+      this._setShield(false);
       return dealt;
     }
 
     const dir = sign(this.root.position.x - fromX) || -this.facing;
-    this._moveTarget = this.root.position.x + dir * 0.45;
+    this._moveTarget = this.root.position.x + dir * 0.4;
 
     if (!this.shielding) {
-      this._setState('hit', C.hitReactDuration);
-      this.anim.play('hit', C.hitReactDuration);
+      // Hit react interrupts whatever we were doing.
+      this._startAction('hit');
     }
     return dealt;
   }
 
-  /* --------------------- Frame update --------------------- */
+  stun(duration) {
+    this.stunTime = Math.max(this.stunTime, duration);
+    this.action = null;
+    this.state = 'stun';
+    this.anim.play('hit');
+  }
+
+  /* ---------------- Frame update ---------------- */
   update(dt, opponent) {
-    // Both fighters always face the camera (CPU is mirrored on X
-    // via negative scale in _buildMesh), so there's no yaw animation
-    // to apply.  `this.facing` is kept as a game-logic value — it
-    // tells projectiles/dashes which direction (+X or -X) to travel.
     const oppX = opponent.root.position.x;
     this.facing = this.side < 0 ? 1 : -1;
 
-    // 2. State timer.
-    if (this.stateTime > 0) {
-      this.stateTime -= dt;
-      if (this.stateTime <= 0 && this.state !== 'ko') {
-        if (this.state !== 'shielding') this.state = 'idle';
-        this.stateTime = 0;
-      }
-    }
+    // Timers.
     if (this.invulnTime  > 0) this.invulnTime  -= dt;
     if (this.lockoutTime > 0) this.lockoutTime -= dt;
     if (this.recentDamageTime > 0) this.recentDamageTime -= dt;
+    if (this.stunTime    > 0) {
+      this.stunTime -= dt;
+      if (this.stunTime <= 0 && this.state === 'stun') this.state = 'idle';
+    }
 
-    // 3. Move toward target X.
+    // Action progression.
+    if (this.action) {
+      // Spend cost on first frame of startup if not already.
+      this._spendActionCost();
+
+      this.action.elapsedFrames += dt / FRAME;
+      const ph = this._phase();
+
+      // Active-phase: melee hit-check on the configured frame.
+      if (ph === PHASE.ACTIVE && !this.action.hitChecked &&
+          this.action.elapsedFrames >= this.action.hitFrame &&
+          ['jab','hook','uppercut','sweep'].includes(this.action.name)) {
+        const reach = this.action.name === 'uppercut' ? C.uppercutReach
+                    : this.action.name === 'sweep'    ? C.sweepReach
+                    :                                   C.punchReach;
+        const gapX = Math.abs(oppX - this.root.position.x);
+        if (gapX <= reach) {
+          const baseDmg = this.action.damage * this.stats.power;
+          const result = opponent.takeHit(baseDmg, this.root.position.x, true);
+          if (result === -1) {
+            // Parried — opponent counters.  Stun us briefly.
+            this.stun(C.counterStunDuration);
+            this.action = null;
+          } else if (result > 0) {
+            this._spawnHitFX(opponent.root.position.clone().setY(1.2));
+            this.onDamageDealt(this.action.name, result);
+          }
+        }
+        this.action.hitChecked = true;
+      }
+
+      // Pending projectile spawn (shoot/super).
+      if (this._pendingShot) {
+        this._pendingShot.frames -= dt / FRAME;
+        if (this._pendingShot.frames <= 0) {
+          this.onShoot(this, this._pendingShot.kind);
+          this._pendingShot = null;
+        }
+      }
+
+      // Action ended.
+      if (this.action && this.action.elapsedFrames >= this.action.total) {
+        // Hit reaction & ko don't auto-return through here (ko stays).
+        if (this.state !== 'ko') {
+          this.state = 'idle';
+        }
+        this.action = null;
+      }
+    }
+
+    // Movement.
+    const speed = C.moveSpeed * this.stats.speed;
     const cur = this.root.position.x;
     const dx = this._moveTarget - cur;
-    const maxStep = this._moveSpeed * dt;
-    const step = clamp(dx, -maxStep, maxStep);
-    let newX = cur + step;
+    const maxStep = speed * dt;
+    let newX = cur + clamp(dx, -maxStep, maxStep);
 
-    // 4. Side lock.  Player (-1) can't cross right of opponent;
-    //    CPU (+1) can't cross left of opponent.
+    // Side lock.
     const gap = C.minSeparation;
     if (this.side < 0) newX = Math.min(newX, oppX - gap);
     else               newX = Math.max(newX, oppX + gap);
     newX = clamp(newX, -CONFIG.stage.laneHalfWidth, CONFIG.stage.laneHalfWidth);
     this.root.position.x = newX;
 
-    // 5. Scheduled projectile spawn.
-    if (this._pendingShot) {
-      this._pendingShot.at -= dt;
-      if (this._pendingShot.at <= 0) {
-        this.onShoot(this, this._pendingShot.kind);
-        this._pendingShot = null;
-      }
-    }
-
-    // 6. Punch hit-check window.
-    if (this.state === 'punching' && !this._punchHitChecked) {
-      const progress = 1 - this.stateTime / C.punchDuration;
-      if (progress > 0.3) {
-        const gapX = Math.abs(oppX - this.root.position.x);
-        if (gapX <= C.punchReach) {
-          const dealt = opponent.takeHit(D.punch, this.root.position.x);
-          if (dealt > 0) {
-            this._spawnHitFX(opponent.root.position.clone().setY(1.2));
-            this.onDamageDealt('punch', dealt);
-          }
-        }
-        this._punchHitChecked = true;
-      }
-    }
-
-    // 7. Battery regen.
+    // Battery regen.
     let regen = B.regenIdlePerSec;
     if (this.shielding) regen = B.regenShieldPerSec;
-    else if (this.state === 'dashing' || this.state === 'dodging') regen = B.regenMovingPerSec;
+    else if (this.action && (this.action.name === 'dash' || this.action.name === 'dodge')) regen = B.regenMovingPerSec;
     if (this.lockoutTime > 0) regen = 0;
     this.battery = Math.min(C.batteryMax, this.battery + regen * dt);
 
-    // 8. Shield drain.
     if (this.shielding) {
       this.battery = Math.max(0, this.battery - B.shieldDrainPerSec * dt);
-      if (this.battery <= 0) this.setShielding(false);
+      if (this.battery <= 0) this._setShield(false);
     }
 
-    // 9. Shield bubble tween.
+    // Shield bubble tween.
     const targetScale = this.shieldMesh.userData.target || 0;
     const ns = damp(this.shieldMesh.scale.x, targetScale, 12, dt);
     this.shieldMesh.scale.setScalar(ns);
     this.shieldMesh.material.opacity = 0.30 * ns;
 
-    // 10. Drive skeletal animation.
     this.anim.update(dt, this.facing);
   }
 
+  /* Hit FX (unchanged) */
   _spawnHitFX(pos) {
     const flash = new THREE.Mesh(
       new THREE.SphereGeometry(0.26, 10, 8),
-      new THREE.MeshBasicMaterial({
-        color: 0xffffcc, transparent: true, opacity: 0.95,
-      })
+      new THREE.MeshBasicMaterial({ color: 0xffffcc, transparent: true, opacity: 0.95 })
     );
     flash.position.copy(pos);
     if (!this.root.parent) return;
