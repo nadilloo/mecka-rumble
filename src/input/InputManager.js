@@ -5,12 +5,12 @@
    Outputs:
      TAP              short press, little movement   -> shoot
      HOLD             long press, little movement    -> super
-     SWIPE_FORWARD    forward swipe with length tag  -> jab/hook/dash
+     SWIPE_FORWARD    forward swipe (short=jab, long=cross, x-long=dash)
      DODGE            any backward swipe             -> dodge
      SHIELD_DOWN      downward swipe latched         -> shield on
      SHIELD_UP        pointerup while shielding      -> shield off
      UPPERCUT         quarter-circle forward (qcf)
-     SWEEP            forward then down
+     HOOK_MOTION      forward then down              -> hook
      COUNTER          quarter-circle back (qcb)
 
    The motion buffer records cardinal-direction "ticks" as the
@@ -222,7 +222,7 @@ export class InputManager {
       this.active = null; return;
     }
     if (this._matchForwardDown(motion, facing)) {
-      this._emit('SWEEP', {}); this._showLabel('SWEEP', true);
+      this._emit('HOOK_MOTION', {}); this._showLabel('HOOK', true);
       this.active = null; return;
     }
     if (this._matchQCB(motion, facing)) {
@@ -330,26 +330,26 @@ export class InputManager {
     ctx.clearRect(0, 0, w, h);
 
     // Pick which stroke to draw: the active one if it exists, else the last one.
-    let pts = null, fadeStart = 0;
+    let pts = null;
+    let alphaMul = 1.0;
     if (this.active && this.active.points.length >= 2) {
       pts = this.active.points;
     } else if (this._lastStrokePts && this._lastStrokePts.length >= 2) {
-      // Fade the last stroke out within ~250ms after release.
-      const age = performance.now() - this._lastStrokeEndT;
-      if (age < 250) {
-        pts = this._lastStrokePts;
-        fadeStart = age;
-      } else {
-        this._lastStrokePts = null;
-      }
+      // Hold the last stroke at reduced opacity until the user starts
+      // a new one (which clears _lastStrokePts in _onDown).
+      pts = this._lastStrokePts;
+      alphaMul = 0.45;
     }
     if (!pts) return;
 
-    const fade = 1 - fadeStart / 250;
     ctx.lineCap = 'round';
     for (let i = 1; i < pts.length; i++) {
-      const age = (performance.now() - pts[i].t) / 400;
-      const alpha = Math.max(0, 1 - age) * fade;
+      // Within an active stroke we still fade older points so the
+      // line draws head-fading-to-tail.  Once released, the snapshot
+      // is drawn flat at alphaMul.
+      const alpha = (this.active === null)
+        ? alphaMul
+        : Math.max(0, 1 - (performance.now() - pts[i].t) / 400);
       ctx.strokeStyle = `rgba(160, 220, 255, ${alpha})`;
       ctx.lineWidth = 3 + 4 * alpha;
       ctx.beginPath();
@@ -357,7 +357,7 @@ export class InputManager {
       ctx.lineTo(pts[i].x,   pts[i].y);
       ctx.stroke();
     }
-    ctx.fillStyle = `rgba(160, 220, 255, ${0.6 * fade})`;
+    ctx.fillStyle = `rgba(160, 220, 255, ${0.6 * alphaMul})`;
     ctx.beginPath();
     ctx.arc(pts[0].x, pts[0].y, 6, 0, Math.PI * 2);
     ctx.fill();

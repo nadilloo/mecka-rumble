@@ -22,10 +22,8 @@ import * as THREE from 'three';
 
 // Which states map to which clip name when a direct clip is missing.
 // We have dedicated clips for: idle, jab, hook, cross, uppercut,
-// shoot, dash, dodge, hit, shield, ko, victory.  Fallbacks below
-// cover actions that don't yet have a unique animation.
+// shoot, dash, dodge, hit, shield, ko, victory.
 const FALLBACKS = {
-  sweep:    'punch',     // no dedicated sweep clip yet
   super:    'shoot',     // big shoot
   counter:  'dodge',     // parry visual ~ dodge for now
 };

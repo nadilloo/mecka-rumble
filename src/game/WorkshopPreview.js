@@ -9,8 +9,6 @@ import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { CONFIG } from '../config.js';
 
-const ARMATURE_SCALE = 0.28;
-const compensate = 1 / ARMATURE_SCALE;
 
 export class WorkshopPreview {
   constructor(canvas, assets) {
@@ -129,16 +127,18 @@ export class WorkshopPreview {
     });
     root.add(cloned);
 
-    // Attach part overlays to bones (same logic as Fighter).
+    // Build world-matrix-tracked overlays (matches Fighter.js).
     const bones = {};
     cloned.traverse((o) => { if (o.isBone) bones[o.name] = o; });
+
+    this._overlayTracks = [];
 
     const addOverlay = (def) => {
       if (!def) return;
       const bone = bones[def.bone];
       if (!bone) return;
-      const s = def.size.map(v => v * compensate);
       let geo;
+      const s = def.size;
       switch (def.shape) {
         case 'box':    geo = new THREE.BoxGeometry(s[0], s[1], s[2]); break;
         case 'sphere': geo = new THREE.SphereGeometry(s[0], 16, 12); break;
@@ -149,19 +149,16 @@ export class WorkshopPreview {
       const mat = new THREE.MeshStandardMaterial({
         color: def.color ?? 0x888888,
         roughness: 0.45, metalness: 0.4,
-        side: THREE.DoubleSide,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.userData.isPartOverlay = true;
-
-      // Counter-rotate the Mixamo armature's 90° X rotation so
-      // offsets in CONFIG are interpreted as world axes (Y = up).
-      const wrapper = new THREE.Group();
-      wrapper.rotation.x = -Math.PI / 2;
-      const o = (def.offset || [0, 0, 0]).map(v => v * compensate);
-      mesh.position.set(o[0], o[1], o[2]);
-      wrapper.add(mesh);
-      bone.add(wrapper);
+      // Add to the preview ROOT, not the bone — same approach as
+      // Fighter.js.  We update positions per frame in _loop().
+      root.add(mesh);
+      this._overlayTracks.push({
+        mesh, bone,
+        offset: new THREE.Vector3(...(def.offset || [0, 0, 0])),
+      });
     };
 
     for (const [cat, id] of Object.entries(this._loadout)) {
@@ -170,6 +167,9 @@ export class WorkshopPreview {
       addOverlay(part.overlay);
       addOverlay(part.overlay2);
     }
+    // Stash the root inverse so we can compute positions in
+    // root-local space each frame.
+    this._previewRoot = root;
 
     this.character = root;
     this.scene.add(root);
@@ -182,7 +182,28 @@ export class WorkshopPreview {
     this._lastT = now;
     this._spinTime += dt;
     if (this.character) this.character.rotation.y = this._spinTime * 0.5;
+    // Update overlays so they follow the bones each frame.  Need to
+    // call updateMatrixWorld first because the character has no
+    // SkinnedMesh updating itself in T-pose.
+    if (this.character) this.character.updateMatrixWorld(true);
+    this._updateOverlays();
     this.renderer.render(this.scene, this.camera);
     requestAnimationFrame(this._loop);
+  }
+
+  _updateOverlays() {
+    if (!this._overlayTracks || this._overlayTracks.length === 0) return;
+    const tmpPos = new THREE.Vector3();
+    const tmpQuat = new THREE.Quaternion();
+    const tmpScale = new THREE.Vector3();
+    const rootInverse = new THREE.Matrix4()
+      .copy(this._previewRoot.matrixWorld).invert();
+    for (const track of this._overlayTracks) {
+      track.bone.matrixWorld.decompose(tmpPos, tmpQuat, tmpScale);
+      const localPos = tmpPos.clone().applyMatrix4(rootInverse);
+      track.mesh.position.copy(localPos).add(track.offset);
+      track.mesh.quaternion.identity();
+      track.mesh.scale.set(1, 1, 1);
+    }
   }
 }

@@ -144,28 +144,20 @@ export class Fighter {
     return root;
   }
 
-  /** Walk the loadout and parent overlay meshes to the correct bones.
-   *  The Mixamo Armature is rotated +90° around X (Z-up internally,
-   *  Y-up after the rotation), and bones inherit that rotation, so
-   *  putting an overlay at offset [0, h, 0] in bone-local space puts
-   *  it at +Z in world space, not +Y.
-   *
-   *  We solve this by wrapping each overlay in a counter-rotation
-   *  group: the overlay group is rotated -90° on X, so offsets in
-   *  CONFIG mean what you'd intuitively expect (Y = up in world
-   *  space, Z = forward, X = sideways).
-   *
-   *  Sizes/offsets in CONFIG are in approximate world-space units.
-   *  Bones in the cloned armature have an effective scale of 0.28
-   *  (armature) × meshScale (2.0) = 0.56.  We compensate by 1/0.28
-   *  so a 0.20-unit value ≈ 0.40 world meters, roughly Mecka-scaled.
+  /** Walk the loadout and create overlay meshes that follow specific
+   *  bones each frame.  Overlays are NOT children of the bones (which
+   *  caused coordinate-space confusion with the rotated Mixamo
+   *  armature).  Instead they're children of the Fighter root, and
+   *  each frame `_updateOverlays()` copies the bone's world matrix
+   *  into them.  Sizes and offsets in CONFIG are in world units —
+   *  what you see is what you get.
    */
   _attachOverlays(charRoot) {
     const bones = {};
     charRoot.traverse((o) => { if (o.isBone) bones[o.name] = o; });
 
-    const ARMATURE_SCALE = 0.28;
-    const compensate = 1 / ARMATURE_SCALE;
+    // Hold (mesh, bone, localOffset) tuples for per-frame updating.
+    this._overlayTracks = [];
 
     const addOverlay = (def) => {
       if (!def) return;
@@ -174,9 +166,8 @@ export class Fighter {
         console.warn(`[overlay] bone not found: ${def.bone}`);
         return;
       }
-      // Build the geometry.
       let geo;
-      const s = def.size.map(v => v * compensate);
+      const s = def.size;
       switch (def.shape) {
         case 'box':    geo = new THREE.BoxGeometry(s[0], s[1], s[2]); break;
         case 'sphere': geo = new THREE.SphereGeometry(s[0], 16, 12); break;
@@ -187,21 +178,20 @@ export class Fighter {
       const mat = new THREE.MeshStandardMaterial({
         color: def.color ?? 0x888888,
         roughness: 0.45, metalness: 0.4,
-        side: THREE.DoubleSide,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
       mesh.userData.isPartOverlay = true;
 
-      // Wrapper group counter-rotates the bone's 90° X rotation so
-      // offsets read as world axes.  We attach the wrapper to the
-      // bone, then put the mesh inside the wrapper at the offset.
-      const wrapper = new THREE.Group();
-      wrapper.rotation.x = -Math.PI / 2;
-      const o = (def.offset || [0, 0, 0]).map(v => v * compensate);
-      mesh.position.set(o[0], o[1], o[2]);
-      wrapper.add(mesh);
-      bone.add(wrapper);
+      // Add to the Fighter root, not the bone.  Manually update
+      // each frame from the bone's world transform.
+      this.root.add(mesh);
+
+      this._overlayTracks.push({
+        mesh,
+        bone,
+        offset: new THREE.Vector3(...(def.offset || [0, 0, 0])),
+      });
     };
 
     for (const [cat, id] of Object.entries(this.loadout)) {
@@ -209,6 +199,31 @@ export class Fighter {
       if (!part) continue;
       addOverlay(part.overlay);
       addOverlay(part.overlay2);
+    }
+  }
+
+  /** Per-frame: copy each tracked bone's world transform onto its
+   *  overlay mesh, then offset the mesh in world space. */
+  _updateOverlays() {
+    if (!this._overlayTracks || this._overlayTracks.length === 0) return;
+    const tmpPos = new THREE.Vector3();
+    const tmpQuat = new THREE.Quaternion();
+    const tmpScale = new THREE.Vector3();
+    const offsetWorld = new THREE.Vector3();
+    // Cache the inverse of the Fighter root's world matrix so we can
+    // express the bone's world position in Fighter-root-local space.
+    const rootInverse = new THREE.Matrix4().copy(this.root.matrixWorld).invert();
+
+    for (const track of this._overlayTracks) {
+      track.bone.matrixWorld.decompose(tmpPos, tmpQuat, tmpScale);
+      // Transform bone world position into Fighter-root-local space.
+      const localPos = tmpPos.clone().applyMatrix4(rootInverse);
+      // Apply the world-up offset (Y is world up).
+      track.mesh.position.copy(localPos).add(track.offset);
+      // Pass through scale magnitude (uniform) and a pure Y rotation so
+      // the box doesn't stay axis-aligned to the world bizarrely.
+      track.mesh.quaternion.identity();
+      track.mesh.scale.set(1, 1, 1);
     }
   }
 
@@ -272,8 +287,8 @@ export class Fighter {
   /* ---------------- Action API ---------------- */
   jab()      { return this.canAct(ACT.jab.cost)      && this._startAction('jab'); }
   hook()     { return this.canAct(ACT.hook.cost)     && this._startAction('hook'); }
+  cross()    { return this.canAct(ACT.cross.cost)    && this._startAction('cross'); }
   uppercut() { return this.canAct(ACT.uppercut.cost) && this._startAction('uppercut'); }
-  sweep()    { return this.canAct(ACT.sweep.cost)    && this._startAction('sweep'); }
 
   shoot() {
     if (!this.canAct(ACT.shoot.cost)) return false;
@@ -417,9 +432,8 @@ export class Fighter {
       // Active-phase: melee hit-check on the configured frame.
       if (ph === PHASE.ACTIVE && !this.action.hitChecked &&
           this.action.elapsedFrames >= this.action.hitFrame &&
-          ['jab','hook','uppercut','sweep'].includes(this.action.name)) {
+          ['jab','hook','cross','uppercut'].includes(this.action.name)) {
         const reach = this.action.name === 'uppercut' ? C.uppercutReach
-                    : this.action.name === 'sweep'    ? C.sweepReach
                     :                                   C.punchReach;
         const gapX = Math.abs(oppX - this.root.position.x);
         if (gapX <= reach) {
@@ -472,15 +486,13 @@ export class Fighter {
 
     // Battery regen.
     let regen = B.regenIdlePerSec;
-    if (this.shielding) regen = B.regenShieldPerSec;
-    else if (this.action && (this.action.name === 'dash' || this.action.name === 'dodge')) regen = B.regenMovingPerSec;
+    if (this.action && (this.action.name === 'dash' || this.action.name === 'dodge')) {
+      regen = B.regenMovingPerSec;
+    }
+    // While shielding, regen is slower (no direct drain).
+    if (this.shielding) regen *= B.shieldRegenMultiplier;
     if (this.lockoutTime > 0) regen = 0;
     this.battery = Math.min(C.batteryMax, this.battery + regen * dt);
-
-    if (this.shielding) {
-      this.battery = Math.max(0, this.battery - B.shieldDrainPerSec * dt);
-      if (this.battery <= 0) this._setShield(false);
-    }
 
     // Shield bubble tween.
     const targetScale = this.shieldMesh.userData.target || 0;
@@ -489,6 +501,7 @@ export class Fighter {
     this.shieldMesh.material.opacity = 0.30 * ns;
 
     this.anim.update(dt, this.facing);
+    this._updateOverlays();
   }
 
   /* Hit FX (unchanged) */

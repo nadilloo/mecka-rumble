@@ -32,11 +32,10 @@ export const CONFIG = {
     moveSpeed: 6.0,
     dashDistance: 3.0,
     dodgeDistance: 1.8,
-    punchRange: 2.0,
-    punchReach: 2.2,
-    uppercutReach: 2.4,
-    sweepReach: 2.3,
-    minSeparation: 1.6,
+    punchRange: 2.6,
+    punchReach: 2.8,
+    uppercutReach: 3.0,
+    minSeparation: 2.4,
 
     // ---- Action descriptors ----
     // Each action specifies, in 60fps frames:
@@ -53,12 +52,12 @@ export const CONFIG = {
     actions: {
       jab:      { startup: 3,  active: 2, recovery: 6,  hitFrame: 4,  damage: 7,  cost: 8 },
       hook:     { startup: 6,  active: 3, recovery: 12, hitFrame: 8,  damage: 14, cost: 14 },
+      cross:    { startup: 5,  active: 3, recovery: 12, hitFrame: 7,  damage: 13, cost: 13 },
       uppercut: { startup: 5,  active: 4, recovery: 16, hitFrame: 8,  damage: 18, cost: 20 },
-      sweep:    { startup: 6,  active: 3, recovery: 14, hitFrame: 9,  damage: 12, cost: 14 },
       shoot:    { startup: 4,  active: 0, recovery: 8,  hitFrame: 4,  damage: 8,  cost: 8  },
       super:    { startup: 12, active: 4, recovery: 14, hitFrame: 14, damage: 22, cost: 35 },
-      dash:     { startup: 2,  active: 8, recovery: 4,  hitFrame: -1, damage: 0,  cost: 18 },
-      dodge:    { startup: 2,  active: 6, recovery: 6,  hitFrame: -1, damage: 0,  cost: 14 },
+      dash:     { startup: 2,  active: 8, recovery: 4,  hitFrame: -1, damage: 0,  cost: 5  },   // 25% of old 18
+      dodge:    { startup: 2,  active: 6, recovery: 6,  hitFrame: -1, damage: 0,  cost: 4  },   // 25% of old 14
       counter:  { startup: 2,  active: 8, recovery: 16, hitFrame: -1, damage: 0,  cost: 18 },
       hit:      { startup: 0,  active: 0, recovery: 8,  hitFrame: -1, damage: 0,  cost: 0  },
     },
@@ -70,18 +69,17 @@ export const CONFIG = {
 
     startSeparation: 7.0,
     meshScale: 2.0,
-    groundLift: 0.55,            // Y lift to keep feet on the floor
+    groundLift: 0.85,            // Y lift to keep feet on the floor
   },
 
   /* -------- Battery economy -------- */
   battery: {
-    // Per-action costs are defined in fighter.actions.*.cost. These
-    // remain as the shield/regen knobs.
-    shieldDrainPerSec: 10,
+    // Per-action costs are defined in fighter.actions.*.cost.
+    // Shielding does NOT drain battery — instead it slows regen.
+    shieldRegenMultiplier: 0.25,    // while shielding, regen is 25% normal speed
 
     regenIdlePerSec:    14,
     regenMovingPerSec:   9,
-    regenShieldPerSec:   4,
 
     emptyLockoutSeconds: 2.0,
   },
@@ -215,76 +213,74 @@ export const CONFIG = {
   /* ============================================================
      PARTS CATALOG (Workshop)
      5 categories × 5 variants each.  Each variant defines visual
-     overlays (geometry attached to a bone) plus stat deltas.
+     overlays attached to specific bones, plus stat deltas.
 
-     Stats:
-       power : multiplier on damage dealt   (1.0 = baseline)
-       armor : multiplier on damage taken   (1.0 = baseline; <1 = tougher)
-       speed : multiplier on moveSpeed      (1.0 = baseline)
-
-     Overlay shapes are simple primitives ("box", "sphere", "cyl",
-     "cone") with size and offset relative to the parent bone.
+     Coordinate system: sizes and offsets are in WORLD UNITS.
+     Each Mecka stands ~2 m tall (head ~y=2, hips ~y=1, feet ~y=0.5).
+     Offsets are in world axes:
+       Y = up
+       Z = forward (out of screen)
+       X = sideways (left/right)
      ============================================================ */
   parts: {
     head: [
-      { id: 'std',     name: 'Standard',     stats: { power: 1.00, armor: 1.00, speed: 1.00 },
-        overlay: null },
+      { id: 'std',     name: 'Standard',     stats: { power: 1.00, armor: 1.00, speed: 1.00 }, overlay: null },
       { id: 'helm',    name: 'Heavy Helm',   stats: { power: 1.00, armor: 0.80, speed: 0.92 },
-        overlay: { shape: 'box',  bone: 'mixamorig:Head',  size: [0.20, 0.07, 0.22], offset: [0, 0.16, 0],     color: 0x666677 } },
+        overlay: { shape: 'box',  bone: 'mixamorig:Head', size: [0.7, 0.18, 0.7], offset: [0, 0.4, 0], color: 0x666677 } },
       { id: 'visor',   name: 'Speed Visor',  stats: { power: 0.95, armor: 1.05, speed: 1.10 },
-        overlay: { shape: 'box',  bone: 'mixamorig:Head',  size: [0.25, 0.04, 0.04], offset: [0, 0.10, 0.10], color: 0x40c0ff } },
+        overlay: { shape: 'box',  bone: 'mixamorig:Head', size: [0.7, 0.10, 0.10], offset: [0, 0.20, 0.32], color: 0x40c0ff } },
       { id: 'horn',    name: 'War Horn',     stats: { power: 1.15, armor: 1.05, speed: 0.95 },
-        overlay: { shape: 'cone', bone: 'mixamorig:Head',  size: [0.04, 0.18],        offset: [0, 0.20, 0],     color: 0xc04040 } },
+        overlay: { shape: 'cone', bone: 'mixamorig:Head', size: [0.10, 0.45], offset: [0, 0.55, 0], color: 0xc04040 } },
       { id: 'antenna', name: 'Comm Antenna', stats: { power: 1.05, armor: 1.00, speed: 1.02 },
-        overlay: { shape: 'cyl',  bone: 'mixamorig:Head',  size: [0.015, 0.015, 0.30], offset: [0.06, 0.22, 0], color: 0xffaa00 } },
+        overlay: { shape: 'cyl',  bone: 'mixamorig:Head', size: [0.04, 0.04, 0.7], offset: [0.18, 0.55, 0], color: 0xffaa00 } },
     ],
     leftArm: [
       { id: 'std',     name: 'Standard',     stats: { power: 1.00, armor: 1.00, speed: 1.00 }, overlay: null },
       { id: 'shield',  name: 'Buckler',      stats: { power: 0.95, armor: 0.75, speed: 0.96 },
-        overlay: { shape: 'cyl',  bone: 'mixamorig:LeftHand', size: [0.10, 0.10, 0.04], offset: [0, 0, 0.04], color: 0x808090 } },
+        overlay: { shape: 'cyl',  bone: 'mixamorig:LeftHand', size: [0.30, 0.30, 0.10], offset: [0, 0, 0], color: 0x808090 } },
       { id: 'gauntlet',name: 'Gauntlet',     stats: { power: 1.10, armor: 0.92, speed: 0.97 },
-        overlay: { shape: 'box',  bone: 'mixamorig:LeftForeArm', size: [0.12, 0.18, 0.12], offset: [0, -0.10, 0], color: 0xb04040 } },
+        overlay: { shape: 'box',  bone: 'mixamorig:LeftForeArm', size: [0.36, 0.36, 0.36], offset: [0, 0, 0], color: 0xb04040 } },
       { id: 'blaster', name: 'Mini Blaster', stats: { power: 1.18, armor: 1.02, speed: 0.98 },
-        overlay: { shape: 'box',  bone: 'mixamorig:LeftForeArm', size: [0.08, 0.10, 0.18], offset: [0, -0.10, 0.08], color: 0x404060 } },
+        overlay: { shape: 'box',  bone: 'mixamorig:LeftForeArm', size: [0.22, 0.22, 0.50], offset: [0, 0.06, 0.18], color: 0x404060 } },
       { id: 'light',   name: 'Carbon Plate', stats: { power: 0.98, armor: 1.00, speed: 1.10 },
-        overlay: { shape: 'box',  bone: 'mixamorig:LeftArm', size: [0.10, 0.20, 0.10], offset: [0, -0.10, 0], color: 0x2a2a36 } },
+        overlay: { shape: 'box',  bone: 'mixamorig:LeftArm', size: [0.32, 0.50, 0.32], offset: [0, 0, 0], color: 0x2a2a36 } },
     ],
     rightArm: [
       { id: 'std',     name: 'Standard',     stats: { power: 1.00, armor: 1.00, speed: 1.00 }, overlay: null },
       { id: 'shield',  name: 'Buckler',      stats: { power: 0.95, armor: 0.75, speed: 0.96 },
-        overlay: { shape: 'cyl',  bone: 'mixamorig:RightHand', size: [0.10, 0.10, 0.04], offset: [0, 0, 0.04], color: 0x808090 } },
+        overlay: { shape: 'cyl',  bone: 'mixamorig:RightHand', size: [0.30, 0.30, 0.10], offset: [0, 0, 0], color: 0x808090 } },
       { id: 'gauntlet',name: 'Gauntlet',     stats: { power: 1.10, armor: 0.92, speed: 0.97 },
-        overlay: { shape: 'box',  bone: 'mixamorig:RightForeArm', size: [0.12, 0.18, 0.12], offset: [0, -0.10, 0], color: 0xb04040 } },
+        overlay: { shape: 'box',  bone: 'mixamorig:RightForeArm', size: [0.36, 0.36, 0.36], offset: [0, 0, 0], color: 0xb04040 } },
       { id: 'blaster', name: 'Mini Blaster', stats: { power: 1.18, armor: 1.02, speed: 0.98 },
-        overlay: { shape: 'box',  bone: 'mixamorig:RightForeArm', size: [0.08, 0.10, 0.18], offset: [0, -0.10, 0.08], color: 0x404060 } },
+        overlay: { shape: 'box',  bone: 'mixamorig:RightForeArm', size: [0.22, 0.22, 0.50], offset: [0, 0.06, 0.18], color: 0x404060 } },
       { id: 'light',   name: 'Carbon Plate', stats: { power: 0.98, armor: 1.00, speed: 1.10 },
-        overlay: { shape: 'box',  bone: 'mixamorig:RightArm', size: [0.10, 0.20, 0.10], offset: [0, -0.10, 0], color: 0x2a2a36 } },
+        overlay: { shape: 'box',  bone: 'mixamorig:RightArm', size: [0.32, 0.50, 0.32], offset: [0, 0, 0], color: 0x2a2a36 } },
     ],
     torso: [
       { id: 'std',     name: 'Standard',      stats: { power: 1.00, armor: 1.00, speed: 1.00 }, overlay: null },
       { id: 'plate',   name: 'Plate Armor',   stats: { power: 1.00, armor: 0.70, speed: 0.85 },
-        overlay: { shape: 'box', bone: 'mixamorig:Spine2', size: [0.32, 0.28, 0.20], offset: [0, 0, 0.02], color: 0x556677 } },
+        overlay: { shape: 'box',    bone: 'mixamorig:Spine2', size: [1.00, 0.85, 0.65], offset: [0, 0, 0.05], color: 0x556677 } },
       { id: 'jet',     name: 'Jet Pack',      stats: { power: 1.00, armor: 0.96, speed: 1.15 },
-        overlay: { shape: 'box', bone: 'mixamorig:Spine2', size: [0.18, 0.22, 0.10], offset: [0, 0, -0.14], color: 0xffaa00 } },
+        overlay: { shape: 'box',    bone: 'mixamorig:Spine2', size: [0.55, 0.65, 0.30], offset: [0, 0, -0.50], color: 0xffaa00 } },
       { id: 'reactor', name: 'Power Reactor', stats: { power: 1.20, armor: 0.98, speed: 0.98 },
-        overlay: { shape: 'sphere', bone: 'mixamorig:Spine2', size: [0.10], offset: [0, 0, 0.16], color: 0xff4d76 } },
+        overlay: { shape: 'sphere', bone: 'mixamorig:Spine2', size: [0.30],              offset: [0, 0, 0.50], color: 0xff4d76 } },
       { id: 'fins',    name: 'Cooling Fins',  stats: { power: 0.96, armor: 1.05, speed: 1.06 },
-        overlay: { shape: 'box', bone: 'mixamorig:Spine2', size: [0.40, 0.04, 0.16], offset: [0, 0.05, -0.08], color: 0x6688aa } },
+        overlay: { shape: 'box',    bone: 'mixamorig:Spine2', size: [1.20, 0.10, 0.55], offset: [0, 0.20, -0.30], color: 0x6688aa } },
     ],
     legs: [
       { id: 'std',     name: 'Standard',     stats: { power: 1.00, armor: 1.00, speed: 1.00 }, overlay: null },
       { id: 'tank',    name: 'Tank Boots',   stats: { power: 1.00, armor: 0.85, speed: 0.85 },
-        overlay: { shape: 'box', bone: 'mixamorig:LeftLeg',  size: [0.14, 0.20, 0.14], offset: [0, -0.20, 0], color: 0x556677 },
-        overlay2:{ shape: 'box', bone: 'mixamorig:RightLeg', size: [0.14, 0.20, 0.14], offset: [0, -0.20, 0], color: 0x556677 } },
+        overlay:  { shape: 'box', bone: 'mixamorig:LeftFoot',  size: [0.45, 0.30, 0.50], offset: [0, -0.10, 0.05], color: 0x556677 },
+        overlay2: { shape: 'box', bone: 'mixamorig:RightFoot', size: [0.45, 0.30, 0.50], offset: [0, -0.10, 0.05], color: 0x556677 } },
       { id: 'spring',  name: 'Spring Coils', stats: { power: 1.00, armor: 1.05, speed: 1.18 },
-        overlay: { shape: 'cyl', bone: 'mixamorig:LeftLeg',  size: [0.05, 0.05, 0.18], offset: [0, -0.18, 0], color: 0xffd700 },
-        overlay2:{ shape: 'cyl', bone: 'mixamorig:RightLeg', size: [0.05, 0.05, 0.18], offset: [0, -0.18, 0], color: 0xffd700 } },
+        overlay:  { shape: 'cyl', bone: 'mixamorig:LeftLeg',  size: [0.14, 0.14, 0.55], offset: [0, -0.10, 0], color: 0xffd700 },
+        overlay2: { shape: 'cyl', bone: 'mixamorig:RightLeg', size: [0.14, 0.14, 0.55], offset: [0, -0.10, 0], color: 0xffd700 } },
       { id: 'kick',    name: 'Power Kicks',  stats: { power: 1.15, armor: 0.96, speed: 0.98 },
-        overlay: { shape: 'box', bone: 'mixamorig:LeftFoot',  size: [0.16, 0.10, 0.22], offset: [0, -0.06, 0.06], color: 0xb04040 },
-        overlay2:{ shape: 'box', bone: 'mixamorig:RightFoot', size: [0.16, 0.10, 0.22], offset: [0, -0.06, 0.06], color: 0xb04040 } },
+        overlay:  { shape: 'box', bone: 'mixamorig:LeftFoot',  size: [0.50, 0.32, 0.62], offset: [0, -0.05, 0.10], color: 0xb04040 },
+        overlay2: { shape: 'box', bone: 'mixamorig:RightFoot', size: [0.50, 0.32, 0.62], offset: [0, -0.05, 0.10], color: 0xb04040 } },
       { id: 'light',   name: 'Carbon Legs',  stats: { power: 0.98, armor: 1.00, speed: 1.12 },
-        overlay: { shape: 'cyl', bone: 'mixamorig:LeftLeg',  size: [0.06, 0.06, 0.20], offset: [0, -0.10, 0], color: 0x2a2a36 },
-        overlay2:{ shape: 'cyl', bone: 'mixamorig:RightLeg', size: [0.06, 0.06, 0.20], offset: [0, -0.10, 0], color: 0x2a2a36 } },
+        overlay:  { shape: 'cyl', bone: 'mixamorig:LeftLeg',  size: [0.18, 0.18, 0.55], offset: [0, 0, 0], color: 0x2a2a36 },
+        overlay2: { shape: 'cyl', bone: 'mixamorig:RightLeg', size: [0.18, 0.18, 0.55], offset: [0, 0, 0], color: 0x2a2a36 } },
     ],
   },
 

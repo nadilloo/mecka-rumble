@@ -231,22 +231,21 @@ export class App {
     // swipe (regardless of length) becomes a dash.  In melee range,
     // short = jab, long = hook, extra long = hook (dash distance is
     // pointless when already in range).
+    // Forward swipes — single event with length classification.
+    // Range gating: if the opponent is OUT of melee reach, ANY
+    // forward swipe (regardless of length) becomes a dash.  In
+    // melee range, short = jab, long = cross.
     this.input.on('SWIPE_FORWARD', ({ length }) => {
       if (!this._canAct()) return;
       const gap = Math.abs(this.cpu.root.position.x - this.player.root.position.x);
-      // Choose the action based on swipe length, then check that
-      // action's actual reach.  Skullgirls-style: out of melee
-      // reach = always dash forward, never trigger a punch that
-      // would whiff.  Tiny tolerance (0.15) covers the edge case
-      // where someone is right at the boundary.
       const F = CONFIG.fighter;
-      const reachFor = (length === 'short') ? F.punchReach : F.punchReach;
-      if (gap > reachFor + 0.15) {
+      // Out of reach: always dash.  Skullgirls-style.
+      if (gap > F.punchReach + 0.15) {
         this.player.dashForward(this.cpu.root.position.x);
       } else if (length === 'short') {
         this.player.jab();
       } else {
-        this.player.hook();
+        this.player.cross();    // long (and dash-length) → cross when in range
       }
     });
 
@@ -254,8 +253,23 @@ export class App {
       if (this._canAct()) this.player.dodgeBack(this.cpu.root.position.x);
     });
 
-    this.input.on('UPPERCUT', () => { if (this._canAct()) this.player.uppercut(); });
-    this.input.on('SWEEP',    () => { if (this._canAct()) this.player.sweep(); });
+    // Forward-then-down → HOOK (replaces former SWEEP).
+    this.input.on('HOOK_MOTION', () => {
+      if (!this._canAct()) return;
+      const gap = Math.abs(this.cpu.root.position.x - this.player.root.position.x);
+      // Same gating as other melee.
+      if (gap > CONFIG.fighter.punchReach + 0.15) return;
+      this.player.hook();
+    });
+
+    // Quarter-circle forward → UPPERCUT.  Only fires in range.
+    this.input.on('UPPERCUT', () => {
+      if (!this._canAct()) return;
+      const gap = Math.abs(this.cpu.root.position.x - this.player.root.position.x);
+      if (gap > CONFIG.fighter.uppercutReach + 0.15) return;
+      this.player.uppercut();
+    });
+
     this.input.on('COUNTER',  () => { if (this._canAct()) this.player.counter(); });
 
     // Held shield: latched down on swipe-down, released on pointer up.
