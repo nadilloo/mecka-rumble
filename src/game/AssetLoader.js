@@ -17,15 +17,24 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const BASE = './assets';
 
 // Internal list: [action-name, file] — keys match Fighter state names.
+// New per-action animations replace the fallbacks for jab, hook,
+// uppercut, dash, dodge, hit, plus a fresh `cross` move.  The
+// `punch` slot is kept as a generic fallback for anything we
+// don't have a dedicated clip for yet (sweep, counter).
 const ANIMATIONS = [
-  ['idle',    'Idle.glb'],
-  ['punch',   'Punching.glb'],
-  ['shoot',   'Shooting.glb'],
-  ['dash',    'DashForward.glb'],
-  ['dodge',   'DodgeBackward.glb'],
-  ['shield',  'Shield.glb'],
-  ['ko',      'Dying.glb'],
-  ['victory', 'CelebratingVictory.glb'],
+  ['idle',     'Idle.glb'],
+  ['jab',      'Jab.glb'],
+  ['hook',     'Hook.glb'],
+  ['cross',    'Cross.glb'],
+  ['uppercut', 'Uppercut.glb'],
+  ['punch',    'Punching.glb'],   // generic fallback
+  ['shoot',    'Shooting.glb'],
+  ['dash',     'Dash.glb'],
+  ['dodge',    'Dodge.glb'],
+  ['hit',      'Hit.glb'],
+  ['shield',   'Shield.glb'],
+  ['ko',       'Dying.glb'],
+  ['victory',  'CelebratingVictory.glb'],
 ];
 
 export async function loadAllAssets() {
@@ -71,19 +80,34 @@ export async function loadAllAssets() {
   // the ':' from the bone name, so the track ends up named
   // 'mixamorigHips.position', not 'mixamorig:Hips.position'.  We
   // match with a regex that's tolerant of both forms.
-  const HIPS_POS_RE = /(^|\.)mixamorig:?Hips\.position$/;
+  // Strip root motion from animation clips.  Mixamo exports translate
+  // the character through world space via TWO separate places:
+  //   1. The Armature root node (e.g. "Armature.001") — moves the
+  //      entire skeleton in world space.  This is the main culprit
+  //      for the "teleport" effect when Dodge / Dash play.
+  //   2. The Hips bone — adds extra body sway and (importantly) a
+  //      vertical Y component that is what lifts the character to
+  //      stand height in the bind pose.  We must KEEP the hips Y so
+  //      the character doesn't sink into the floor, but we should
+  //      zero the X/Z so the body doesn't drift around.
+  //
+  // We also need to be tolerant of name sanitization: Three.js's
+  // PropertyBinding.sanitizeNodeName strips ':' from bone names, so
+  // 'mixamorig:Hips' becomes 'mixamorigHips' in the track name.
+  const ARMATURE_POS_RE = /(^|\.)Armature(\.\d+)?\.position$/;
+  const HIPS_POS_RE     = /(^|\.)mixamorig:?Hips\.position$/;
   const clips = {};
   ANIMATIONS.forEach(([name], i) => {
     const anims = animGltfs[i].animations;
     if (!anims || anims.length === 0) return;
     const clip = anims[0];
     for (const track of clip.tracks) {
-      if (HIPS_POS_RE.test(track.name)) {
-        // Zero only X (i) and Z (i+2) — the horizontal root motion
-        // that makes the character translate forward in DashForward,
-        // backward in DodgeBackward, etc.  KEEP Y (i+1) because the
-        // hips bone translates the entire body upward at runtime;
-        // zeroing it makes the character sink into the floor.
+      if (ARMATURE_POS_RE.test(track.name)) {
+        // Zero ALL components of the armature translation — this is
+        // pure world-space movement that the game logic handles.
+        for (let j = 0; j < track.values.length; j++) track.values[j] = 0;
+      } else if (HIPS_POS_RE.test(track.name)) {
+        // Zero only X (j) and Z (j+2).  Keep Y so the body lifts.
         for (let j = 0; j < track.values.length; j += 3) {
           track.values[j]     = 0;  // X
           track.values[j + 2] = 0;  // Z

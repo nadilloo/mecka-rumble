@@ -22,6 +22,7 @@ import { Fighter } from '../game/Fighter.js';
 import { FighterAI } from '../game/FighterAI.js';
 import { ProjectileManager } from '../game/ProjectileManager.js';
 import { UIManager } from '../ui/UIManager.js';
+import { WorkshopPreview } from '../game/WorkshopPreview.js';
 
 export class App {
   constructor(assets) {
@@ -45,6 +46,17 @@ export class App {
     // ---- UI first; the menu screen needs it before any 3D work ----
     this.ui = new UIManager();
     this._wireMenuAndPauseModals();
+
+    // ---- Workshop preview (its own small Three scene). ----
+    const previewCanvas = document.getElementById('workshop-canvas');
+    if (previewCanvas) {
+      this.workshopPreview = new WorkshopPreview(previewCanvas, assets);
+      this.workshopPreview.setLoadout(this.ui.getLoadout());
+      // Update preview live when loadout changes in the workshop.
+      this.ui.onLoadoutChange((lo) => {
+        this.workshopPreview.setLoadout(lo);
+      });
+    }
 
     // Show menu by default.
     this.ui.showScreen('menu');
@@ -175,9 +187,16 @@ export class App {
 
   _enterMenu() {
     this.ui.showScreen('menu');
+    this.workshopPreview?.stop();
   }
   _enterWorkshop() {
     this.ui.showScreen('workshop');
+    if (this.workshopPreview) {
+      this.workshopPreview.setLoadout(this.ui.getLoadout());
+      this.workshopPreview.start();
+      // Wait one frame for the screen to be visible, then resize.
+      requestAnimationFrame(() => this.workshopPreview.resize());
+    }
   }
   _enterBattle() {
     const firstEntry = !this._battleReady;
@@ -207,14 +226,22 @@ export class App {
     this.input.on('TAP',  () => { if (this._canAct()) this.player.shoot(); });
     this.input.on('HOLD', () => { if (this._canAct()) this.player.superShot(); });
 
-    // Forward swipes — short / long / very long.
-    this.input.on('JAB',  () => { if (this._canAct()) this.player.jab(); });
-    this.input.on('HOOK', () => { if (this._canAct()) this.player.hook(); });
-    this.input.on('DASH', () => {
+    // Forward swipes — single event with length classification.
+    // Range gating: if the opponent is OUT of melee range, any forward
+    // swipe (regardless of length) becomes a dash.  In melee range,
+    // short = jab, long = hook, extra long = hook (dash distance is
+    // pointless when already in range).
+    this.input.on('SWIPE_FORWARD', ({ length }) => {
       if (!this._canAct()) return;
       const gap = Math.abs(this.cpu.root.position.x - this.player.root.position.x);
-      if (gap <= CONFIG.fighter.punchRange) this.player.hook();
-      else this.player.dashForward(this.cpu.root.position.x);
+      const inRange = gap <= CONFIG.fighter.punchRange + 0.5;
+      if (!inRange) {
+        this.player.dashForward(this.cpu.root.position.x);
+      } else if (length === 'short') {
+        this.player.jab();
+      } else {
+        this.player.hook();
+      }
     });
 
     this.input.on('DODGE', () => {
@@ -225,9 +252,13 @@ export class App {
     this.input.on('SWEEP',    () => { if (this._canAct()) this.player.sweep(); });
     this.input.on('COUNTER',  () => { if (this._canAct()) this.player.counter(); });
 
-    this.input.on('SHIELD_TOGGLE', () => {
+    // Held shield: latched down on swipe-down, released on pointer up.
+    this.input.on('SHIELD_DOWN', () => {
       if (this._paused || this._ended) return;
-      this.player.toggleShield();
+      this.player.setShielding(true);
+    });
+    this.input.on('SHIELD_UP', () => {
+      this.player?.setShielding(false);
     });
   }
   _canAct() { return !this._paused && !this._ended; }

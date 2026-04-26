@@ -56,7 +56,7 @@ export const CONFIG = {
       uppercut: { startup: 5,  active: 4, recovery: 16, hitFrame: 8,  damage: 18, cost: 20 },
       sweep:    { startup: 6,  active: 3, recovery: 14, hitFrame: 9,  damage: 12, cost: 14 },
       shoot:    { startup: 4,  active: 0, recovery: 8,  hitFrame: 4,  damage: 8,  cost: 8  },
-      super:    { startup: 24, active: 4, recovery: 14, hitFrame: 26, damage: 22, cost: 35 },
+      super:    { startup: 12, active: 4, recovery: 14, hitFrame: 14, damage: 22, cost: 35 },
       dash:     { startup: 2,  active: 8, recovery: 4,  hitFrame: -1, damage: 0,  cost: 18 },
       dodge:    { startup: 2,  active: 6, recovery: 6,  hitFrame: -1, damage: 0,  cost: 14 },
       counter:  { startup: 2,  active: 8, recovery: 16, hitFrame: -1, damage: 0,  cost: 18 },
@@ -143,6 +143,7 @@ export const CONFIG = {
     dashSwipeMinPx: 200,         // promote hook to dash
 
     dragDownMinPx: 90,
+    shieldHoldMinPx: 35,         // any down-swipe of this length+ engages held shield
 
     horizontalBias: 1.2,
     verticalBias: 1.2,

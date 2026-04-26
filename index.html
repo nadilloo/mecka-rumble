@@ -37,6 +37,10 @@
       <div class="workshop-title">MECKA WORKSHOP</div>
     </header>
 
+    <div class="workshop-preview">
+      <canvas id="workshop-canvas"></canvas>
+    </div>
+
     <div class="workshop-stats">
       <div class="stat"><div class="stat-label">POWER</div><div class="stat-bar"><div class="stat-fill power" id="stat-power"></div></div></div>
       <div class="stat"><div class="stat-label">ARMOR</div><div class="stat-bar"><div class="stat-fill armor" id="stat-armor"></div></div></div>
@@ -82,7 +86,7 @@
         <div class="hint hint-up">▲ Hold = SUPER</div>
         <div class="hint hint-left">◀ Back = DODGE</div>
         <div class="hint hint-right">▶ Short=JAB · Long=HOOK · X-long=DASH</div>
-        <div class="hint hint-down">▼ Tap = SHIELD</div>
+        <div class="hint hint-down">▼ Swipe + Hold = SHIELD</div>
         <div class="hint hint-center">Tap = SHOOT · ▼▶ = UPPERCUT</div>
 
         <canvas id="trail"></canvas>
@@ -124,9 +128,9 @@
     <div class="modal-card commands-card">
       <div class="modal-title">COMMAND LIST</div>
       <table class="cmd-table">
-        <tr><td class="cmd-input">Tap (upper)</td><td class="cmd-arrow">→</td><td class="cmd-name">SHOOT</td></tr>
+        <tr><td class="cmd-input">Tap</td><td class="cmd-arrow">→</td><td class="cmd-name">SHOOT</td></tr>
         <tr><td class="cmd-input">Hold tap</td><td>→</td><td>SUPER SHOT</td></tr>
-        <tr><td class="cmd-input">Tap (lower)</td><td>→</td><td>SHIELD (toggle)</td></tr>
+        <tr><td class="cmd-input">▼ Swipe + Hold</td><td>→</td><td>SHIELD (release to drop)</td></tr>
         <tr><td class="cmd-input">Swipe ▶ (short)</td><td>→</td><td>JAB (light, fast)</td></tr>
         <tr><td class="cmd-input">Swipe ▶ (long)</td><td>→</td><td>HOOK (heavy)</td></tr>
         <tr><td class="cmd-input">Swipe ▶ (extra long)</td><td>→</td><td>DASH</td></tr>

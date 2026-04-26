@@ -389,3 +389,17 @@ html, body {
 /* Workshop needs to allow vertical scrolling within its parts list,
    overriding the body-level touch-action: none. */
 .workshop-cats { touch-action: pan-y; }
+
+/* Workshop preview viewport */
+.workshop-preview {
+  height: 36vh; min-height: 200px;
+  background:
+    radial-gradient(ellipse at 50% 60%, #2a1d4a 0%, #110a26 70%, #05050a 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  position: relative;
+}
+#workshop-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+}

@@ -21,16 +21,13 @@
 import * as THREE from 'three';
 
 // Which states map to which clip name when a direct clip is missing.
-// We fall back to existing Mixamo clips until dedicated animations
-// are authored for the new moves.
+// We have dedicated clips for: idle, jab, hook, cross, uppercut,
+// shoot, dash, dodge, hit, shield, ko, victory.  Fallbacks below
+// cover actions that don't yet have a unique animation.
 const FALLBACKS = {
-  jab:      'punch',
-  hook:     'punch',
-  uppercut: 'punch',
-  sweep:    'punch',
-  super:    'shoot',
-  counter:  'dodge',
-  hit:      'dodge',
+  sweep:    'punch',     // no dedicated sweep clip yet
+  super:    'shoot',     // big shoot
+  counter:  'dodge',     // parry visual ~ dodge for now
 };
 
 // Which actions should loop forever until stopped.

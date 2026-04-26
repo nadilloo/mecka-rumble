@@ -141,32 +141,49 @@ export class Fighter {
     return root;
   }
 
-  /** Walk the loadout and parent overlay meshes to the correct bones. */
+  /** Walk the loadout and parent overlay meshes to the correct bones.
+   *  Parts are defined in approximate world-space units (e.g. a 0.5m
+   *  helm).  We compensate for the armature's internal scale (0.28
+   *  in Mixamo Jammo) so the size/offset numbers in CONFIG match
+   *  what you actually see on screen. */
   _attachOverlays(charRoot) {
-    // Build a bone-name lookup once.
     const bones = {};
-    charRoot.traverse((o) => { if (o.isBone) bones[o.name] = o; });
+    charRoot.traverse((o) => {
+      if (o.isBone) bones[o.name] = o;
+    });
+
+    // Mixamo Jammo armature scales bones by 0.28.  Inverse so the
+    // CONFIG sizes are roughly real-world centimeters.
+    const ARMATURE_SCALE = 0.28;
+    const compensate = 1 / ARMATURE_SCALE;
 
     const addOverlay = (def) => {
       if (!def) return;
       const bone = bones[def.bone];
-      if (!bone) return;
+      if (!bone) {
+        console.warn(`[overlay] bone not found: ${def.bone}`);
+        return;
+      }
       let geo;
-      const s = def.size;
+      const s = def.size.map(v => v * compensate);
       switch (def.shape) {
         case 'box':    geo = new THREE.BoxGeometry(s[0], s[1], s[2]); break;
-        case 'sphere': geo = new THREE.SphereGeometry(s[0], 14, 10); break;
-        case 'cyl':    geo = new THREE.CylinderGeometry(s[0], s[1], s[2], 14); break;
-        case 'cone':   geo = new THREE.ConeGeometry(s[0], s[1], 14); break;
+        case 'sphere': geo = new THREE.SphereGeometry(s[0], 16, 12); break;
+        case 'cyl':    geo = new THREE.CylinderGeometry(s[0], s[1], s[2], 16); break;
+        case 'cone':   geo = new THREE.ConeGeometry(s[0], s[1], 16); break;
         default: return;
       }
       const mat = new THREE.MeshStandardMaterial({
-        color: def.color || 0x888888, roughness: 0.5, metalness: 0.4,
+        color: def.color ?? 0x888888,
+        roughness: 0.45, metalness: 0.4,
+        side: THREE.DoubleSide,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
-      const o = def.offset || [0, 0, 0];
+      mesh.receiveShadow = false;
+      const o = (def.offset || [0, 0, 0]).map(v => v * compensate);
       mesh.position.set(o[0], o[1], o[2]);
+      mesh.userData.isPartOverlay = true;
       bone.add(mesh);
     };
 
@@ -174,7 +191,7 @@ export class Fighter {
       const part = (CONFIG.parts[cat] || []).find(p => p.id === id);
       if (!part) continue;
       addOverlay(part.overlay);
-      addOverlay(part.overlay2);   // for symmetric leg parts
+      addOverlay(part.overlay2);
     }
   }
 
@@ -342,11 +359,10 @@ export class Fighter {
       return dealt;
     }
 
-    const dir = sign(this.root.position.x - fromX) || -this.facing;
-    this._moveTarget = this.root.position.x + dir * 0.4;
-
+    // No physical knockback — getting hit deals damage but doesn't
+    // shove the fighter.  Hit reaction interrupts the current action
+    // (unless we were shielding).
     if (!this.shielding) {
-      // Hit react interrupts whatever we were doing.
       this._startAction('hit');
     }
     return dealt;

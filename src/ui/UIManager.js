@@ -47,10 +47,11 @@ export class UIManager {
     this._fps = 60; this._frames = 0; this._fpsT = 0;
 
     // External callbacks
-    this._menuCb     = () => {};
-    this._workshopCb = () => {};
-    this._pauseCb    = () => {};
-    this._endCb      = () => {};
+    this._menuCb         = () => {};
+    this._workshopCb     = () => {};
+    this._pauseCb        = () => {};
+    this._endCb          = () => {};
+    this._loadoutChangeCb = () => {};
 
     // Workshop state
     this.loadout = this._loadLoadoutFromStorage();
@@ -77,6 +78,7 @@ export class UIManager {
   onPauseAction(fn)    { this._pauseCb = fn; }
   onEndAction(fn)      { this._endCb = fn; }
   onPauseClick(fn)     { this.pauseBtn.addEventListener('click', fn); }
+  onLoadoutChange(fn)  { this._loadoutChangeCb = fn; }
 
   /* ---------- Loadout (saved to localStorage) ---------- */
   getLoadout() { return { ...this.loadout }; }
@@ -247,6 +249,7 @@ export class UIManager {
         this.loadout[cat] = id;
         this._renderWorkshop();
         this._updateStatBars();
+        this._loadoutChangeCb({ ...this.loadout });
         return;
       }
       const ctlBtn = e.target.closest('button[data-workshop]');
@@ -256,6 +259,7 @@ export class UIManager {
           this.loadout = { ...CONFIG.defaultLoadout };
           this._renderWorkshop();
           this._updateStatBars();
+          this._loadoutChangeCb({ ...this.loadout });
         } else if (action === 'save') {
           this._saveLoadoutToStorage();
           this._workshopCb('save');

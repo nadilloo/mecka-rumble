@@ -5,14 +5,13 @@
    Outputs:
      TAP              short press, little movement   -> shoot
      HOLD             long press, little movement    -> super
-     JAB              short forward swipe            -> light punch
-     HOOK             long forward swipe             -> heavy punch
-     DASH             very long forward swipe        -> dash forward
+     SWIPE_FORWARD    forward swipe with length tag  -> jab/hook/dash
      DODGE            any backward swipe             -> dodge
-     SHIELD_TOGGLE    quick down-tap (no drag)       -> toggle shield on/off
-     UPPERCUT         quarter-circle forward (qcf)   -> ▼ ▶  (down then forward)
-     SWEEP            ▶ then ▼ (forward then down)
-     COUNTER          quarter-circle back (qcb)      -> ▼ ◀
+     SHIELD_DOWN      downward swipe latched         -> shield on
+     SHIELD_UP        pointerup while shielding      -> shield off
+     UPPERCUT         quarter-circle forward (qcf)
+     SWEEP            forward then down
+     COUNTER          quarter-circle back (qcb)
 
    The motion buffer records cardinal-direction "ticks" as the
    pointer moves, so any qcf/qcb gesture works regardless of
@@ -39,6 +38,7 @@ export class InputManager {
     this._lastStrokeEndT = 0;
 
     this.facingRight = true;       // player is on the left, facing right
+    this._shieldHeld = false;      // true while user is actively holding a down-swipe
 
     this._resizeTrail();
     const ro = new ResizeObserver(() => this._resizeTrail());
@@ -128,8 +128,24 @@ export class InputManager {
       this.active.lastSampleY = p.y;
     }
 
-    // Long-hold = SUPER (fired once mid-stroke).
-    if (!this.active.holdFired) {
+    // Held shield: any downward swipe (regardless of distance, just
+    // a clear vertical bias) latches SHIELD_DOWN until pointerup.
+    // We require a minimum vertical distance so a flat horizontal
+    // swipe doesn't count, but we don't gate on "long enough" — even
+    // a 30px down-flick will engage the shield and keep it engaged.
+    const totalDx = p.x - this.active.startX;
+    const totalDy = p.y - this.active.startY;
+    if (!this.active.shieldFired &&
+        totalDy > IN.shieldHoldMinPx &&
+        Math.abs(totalDy) > Math.abs(totalDx) * IN.verticalBias) {
+      this.active.shieldFired = true;
+      this._shieldHeld = true;
+      this._emit('SHIELD_DOWN', {});
+      this._showLabel('SHIELD', true);
+    }
+
+    // Long-hold (motionless) = SUPER (fired once mid-stroke).
+    if (!this.active.holdFired && !this.active.shieldFired) {
       const age = performance.now() - this.active.startT;
       const moved = Math.hypot(p.x - this.active.startX, p.y - this.active.startY);
       if (age > IN.holdMinMs && moved < IN.tapMaxMovePx) {
@@ -154,7 +170,16 @@ export class InputManager {
     this._lastStrokePts = a.points.slice();
     this._lastStrokeEndT = performance.now();
 
-    // If HOLD already fired, the stroke is consumed.
+    // If shield was held, release it now and consume the stroke.
+    if (this._shieldHeld) {
+      this._shieldHeld = false;
+      this._emit('SHIELD_UP', {});
+      this._showLabel('—');
+      this.active = null;
+      return;
+    }
+
+    // If HOLD (super) already fired, the stroke is consumed.
     if (a.holdFired) { this.active = null; return; }
 
     // ---- Special motions take priority over plain swipes ----
@@ -173,25 +198,10 @@ export class InputManager {
       this.active = null; return;
     }
 
-    // ---- Tap on the bottom 40% area = shield toggle ----
-    // We treat a brief, mostly-vertical-down tap or a stationary tap
-    // in the lower half as SHIELD_TOGGLE.
+    // ---- Tap (anywhere) = SHOOT ----
     if (dt <= IN.tapMaxMs && dist <= IN.tapMaxMovePx) {
-      const panelH = this.panelEl.clientHeight || 1;
-      if (a.startY > panelH * 0.55) {
-        this._emit('SHIELD_TOGGLE', {});
-        this._showLabel('SHIELD', true);
-      } else {
-        this._emit('TAP', {});       // shoot
-        this._showLabel('SHOOT', true);
-      }
-      this.active = null; return;
-    }
-
-    // ---- Down-drag = shield toggle ----
-    if (dy > IN.dragDownMinPx && Math.abs(dy) > Math.abs(dx) * IN.verticalBias) {
-      this._emit('SHIELD_TOGGLE', {});
-      this._showLabel('SHIELD', true);
+      this._emit('TAP', {});
+      this._showLabel('SHOOT', true);
       this.active = null; return;
     }
 
@@ -202,17 +212,22 @@ export class InputManager {
       const len = Math.abs(dx);
 
       if (swipedForward) {
-        // Three tiers based on swipe length.
+        // Pass swipe length to the App so it can decide jab vs hook
+        // vs dash based on opponent distance.  (App knows the gap;
+        // input layer doesn't.)
         if (len >= IN.dashSwipeMinPx) {
-          this._emit('DASH', {});  this._showLabel('DASH', true);
+          this._emit('SWIPE_FORWARD', { length: 'dash', px: len });
+          this._showLabel('DASH', true);
         } else if (len >= IN.longSwipeMinPx) {
-          this._emit('HOOK', {});  this._showLabel('HOOK', true);
+          this._emit('SWIPE_FORWARD', { length: 'long', px: len });
+          this._showLabel('HOOK', true);
         } else {
-          this._emit('JAB', {});   this._showLabel('JAB', true);
+          this._emit('SWIPE_FORWARD', { length: 'short', px: len });
+          this._showLabel('JAB', true);
         }
       } else {
-        // Backward swipe = dodge regardless of length.
-        this._emit('DODGE', {}); this._showLabel('DODGE', true);
+        this._emit('DODGE', {});
+        this._showLabel('DODGE', true);
       }
       this.active = null; return;
     }
