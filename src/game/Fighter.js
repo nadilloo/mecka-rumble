@@ -62,7 +62,10 @@ export class Fighter {
     // Build mesh.
     this.root = this._buildMesh(opts.assets);
     this.root.position.x = opts.startX || 0;
-    this.root.position.y = 0;
+    // Lift the character so the feet sit ON the floor rather than sunk
+    // into it.  This compensates for the bind-pose origin and the
+    // Mixamo Hips Y deltas which are not always around the foot plane.
+    this.root.position.y = C.groundLift;
     this.root.rotation.y = this.side < 0 ? Math.PI / 2 : -Math.PI / 2;
 
     this.anim = new AnimationController(this._animRoot, opts.assets.clips);
@@ -142,18 +145,25 @@ export class Fighter {
   }
 
   /** Walk the loadout and parent overlay meshes to the correct bones.
-   *  Parts are defined in approximate world-space units (e.g. a 0.5m
-   *  helm).  We compensate for the armature's internal scale (0.28
-   *  in Mixamo Jammo) so the size/offset numbers in CONFIG match
-   *  what you actually see on screen. */
+   *  The Mixamo Armature is rotated +90° around X (Z-up internally,
+   *  Y-up after the rotation), and bones inherit that rotation, so
+   *  putting an overlay at offset [0, h, 0] in bone-local space puts
+   *  it at +Z in world space, not +Y.
+   *
+   *  We solve this by wrapping each overlay in a counter-rotation
+   *  group: the overlay group is rotated -90° on X, so offsets in
+   *  CONFIG mean what you'd intuitively expect (Y = up in world
+   *  space, Z = forward, X = sideways).
+   *
+   *  Sizes/offsets in CONFIG are in approximate world-space units.
+   *  Bones in the cloned armature have an effective scale of 0.28
+   *  (armature) × meshScale (2.0) = 0.56.  We compensate by 1/0.28
+   *  so a 0.20-unit value ≈ 0.40 world meters, roughly Mecka-scaled.
+   */
   _attachOverlays(charRoot) {
     const bones = {};
-    charRoot.traverse((o) => {
-      if (o.isBone) bones[o.name] = o;
-    });
+    charRoot.traverse((o) => { if (o.isBone) bones[o.name] = o; });
 
-    // Mixamo Jammo armature scales bones by 0.28.  Inverse so the
-    // CONFIG sizes are roughly real-world centimeters.
     const ARMATURE_SCALE = 0.28;
     const compensate = 1 / ARMATURE_SCALE;
 
@@ -164,6 +174,7 @@ export class Fighter {
         console.warn(`[overlay] bone not found: ${def.bone}`);
         return;
       }
+      // Build the geometry.
       let geo;
       const s = def.size.map(v => v * compensate);
       switch (def.shape) {
@@ -180,11 +191,17 @@ export class Fighter {
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
-      mesh.receiveShadow = false;
+      mesh.userData.isPartOverlay = true;
+
+      // Wrapper group counter-rotates the bone's 90° X rotation so
+      // offsets read as world axes.  We attach the wrapper to the
+      // bone, then put the mesh inside the wrapper at the offset.
+      const wrapper = new THREE.Group();
+      wrapper.rotation.x = -Math.PI / 2;
       const o = (def.offset || [0, 0, 0]).map(v => v * compensate);
       mesh.position.set(o[0], o[1], o[2]);
-      mesh.userData.isPartOverlay = true;
-      bone.add(mesh);
+      wrapper.add(mesh);
+      bone.add(wrapper);
     };
 
     for (const [cat, id] of Object.entries(this.loadout)) {

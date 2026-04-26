@@ -95,6 +95,8 @@ export class InputManager {
       startT: performance.now(),
       points: [{ x: p.x, y: p.y, t: performance.now() }],
       holdFired: false,
+      shieldFired: false,
+      shieldAnchor: null,
       // Motion buffer: array of { dir, t } direction ticks.
       motion: [],
       lastSampleX: p.x, lastSampleY: p.y,
@@ -128,20 +130,50 @@ export class InputManager {
       this.active.lastSampleY = p.y;
     }
 
-    // Held shield: any downward swipe (regardless of distance, just
-    // a clear vertical bias) latches SHIELD_DOWN until pointerup.
-    // We require a minimum vertical distance so a flat horizontal
-    // swipe doesn't count, but we don't gate on "long enough" — even
-    // a 30px down-flick will engage the shield and keep it engaged.
+    // Shield latch logic.  We want to fire SHIELD_DOWN ONLY when the
+    // user has clearly committed to a down-swipe-and-hold gesture,
+    // not when they're in the middle of drawing an uppercut motion
+    // (which starts with a downward stroke).
+    //
+    // Strategy: a downward-biased displacement makes the stroke a
+    // "shield candidate", but we don't latch until the pointer has
+    // been roughly stationary for ~140ms.  Any further movement
+    // resets the stationary timer.  If the user keeps drawing
+    // (toward forward, for an uppercut), the timer never expires
+    // and shield never fires.
     const totalDx = p.x - this.active.startX;
     const totalDy = p.y - this.active.startY;
-    if (!this.active.shieldFired &&
-        totalDy > IN.shieldHoldMinPx &&
-        Math.abs(totalDy) > Math.abs(totalDx) * IN.verticalBias) {
-      this.active.shieldFired = true;
-      this._shieldHeld = true;
-      this._emit('SHIELD_DOWN', {});
-      this._showLabel('SHIELD', true);
+    const shieldCandidate =
+      totalDy > IN.shieldHoldMinPx &&
+      Math.abs(totalDy) > Math.abs(totalDx) * IN.verticalBias;
+
+    if (!this.active.shieldFired) {
+      if (shieldCandidate) {
+        // Track stationary time at the latest position.  If the
+        // pointer has been within a small radius of `shieldAnchor`
+        // for SHIELD_HOLD_MS, we latch the shield.
+        const SHIELD_HOLD_MS = 140;
+        const SHIELD_STATIONARY_PX = 12;
+        if (!this.active.shieldAnchor) {
+          this.active.shieldAnchor = { x: p.x, y: p.y, t: performance.now() };
+        } else {
+          const ax = this.active.shieldAnchor.x;
+          const ay = this.active.shieldAnchor.y;
+          const dist = Math.hypot(p.x - ax, p.y - ay);
+          if (dist > SHIELD_STATIONARY_PX) {
+            // Pointer moved — reset anchor so the timer starts again.
+            this.active.shieldAnchor = { x: p.x, y: p.y, t: performance.now() };
+          } else if (performance.now() - this.active.shieldAnchor.t >= SHIELD_HOLD_MS) {
+            this.active.shieldFired = true;
+            this._shieldHeld = true;
+            this._emit('SHIELD_DOWN', {});
+            this._showLabel('SHIELD', true);
+          }
+        }
+      } else {
+        // No longer a shield candidate — clear any anchor we built up.
+        this.active.shieldAnchor = null;
+      }
     }
 
     // Long-hold (motionless) = SUPER (fired once mid-stroke).

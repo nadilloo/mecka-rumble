@@ -36,7 +36,7 @@ export class WorkshopPreview {
     this.scene.add(rim);
 
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 50);
-    this.camera.position.set(0, 1.1, 4.0);
+    this.camera.position.set(0, 1.4, 5.8);
     this.camera.lookAt(0, 1.0, 0);
 
     // Pedestal disc.
@@ -99,7 +99,13 @@ export class WorkshopPreview {
 
     const root = new THREE.Group();
     const cloned = cloneSkinned(this.assets.baseScene);
-    cloned.scale.setScalar(CONFIG.fighter.meshScale);
+    // Workshop preview scales the character down so it fits in
+    // the small viewport with breathing room.  Battle scene uses
+    // CONFIG.fighter.meshScale unchanged.
+    cloned.scale.setScalar(CONFIG.fighter.meshScale * 0.67);
+    // Match the same ground lift the in-game Fighter applies, scaled
+    // by the preview's reduced scale, so feet sit on the pedestal.
+    root.position.y = CONFIG.fighter.groundLift * 0.67;
 
     // Player tint (red Mecka).
     const albedo = this.assets.textures.albedoRed;
@@ -146,10 +152,16 @@ export class WorkshopPreview {
         side: THREE.DoubleSide,
       });
       const mesh = new THREE.Mesh(geo, mat);
+      mesh.userData.isPartOverlay = true;
+
+      // Counter-rotate the Mixamo armature's 90° X rotation so
+      // offsets in CONFIG are interpreted as world axes (Y = up).
+      const wrapper = new THREE.Group();
+      wrapper.rotation.x = -Math.PI / 2;
       const o = (def.offset || [0, 0, 0]).map(v => v * compensate);
       mesh.position.set(o[0], o[1], o[2]);
-      mesh.userData.isPartOverlay = true;
-      bone.add(mesh);
+      wrapper.add(mesh);
+      bone.add(wrapper);
     };
 
     for (const [cat, id] of Object.entries(this._loadout)) {

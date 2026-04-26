@@ -234,8 +234,14 @@ export class App {
     this.input.on('SWIPE_FORWARD', ({ length }) => {
       if (!this._canAct()) return;
       const gap = Math.abs(this.cpu.root.position.x - this.player.root.position.x);
-      const inRange = gap <= CONFIG.fighter.punchRange + 0.5;
-      if (!inRange) {
+      // Choose the action based on swipe length, then check that
+      // action's actual reach.  Skullgirls-style: out of melee
+      // reach = always dash forward, never trigger a punch that
+      // would whiff.  Tiny tolerance (0.15) covers the edge case
+      // where someone is right at the boundary.
+      const F = CONFIG.fighter;
+      const reachFor = (length === 'short') ? F.punchReach : F.punchReach;
+      if (gap > reachFor + 0.15) {
         this.player.dashForward(this.cpu.root.position.x);
       } else if (length === 'short') {
         this.player.jab();

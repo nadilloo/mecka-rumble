@@ -32,11 +32,11 @@ export const CONFIG = {
     moveSpeed: 6.0,
     dashDistance: 3.0,
     dodgeDistance: 1.8,
-    punchRange: 1.7,
-    punchReach: 1.9,
-    uppercutReach: 2.1,
-    sweepReach: 2.0,
-    minSeparation: 1.05,
+    punchRange: 2.0,
+    punchReach: 2.2,
+    uppercutReach: 2.4,
+    sweepReach: 2.3,
+    minSeparation: 1.6,
 
     // ---- Action descriptors ----
     // Each action specifies, in 60fps frames:
@@ -70,6 +70,7 @@ export const CONFIG = {
 
     startSeparation: 7.0,
     meshScale: 2.0,
+    groundLift: 0.55,            // Y lift to keep feet on the floor
   },
 
   /* -------- Battery economy -------- */
