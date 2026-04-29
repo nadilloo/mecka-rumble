@@ -15,9 +15,10 @@ const LS_KEY = 'mecka.loadout.v1';
 export class UIManager {
   constructor() {
     // ---- Screens ----
-    this.menuScreen     = document.getElementById('menu-screen');
-    this.workshopScreen = document.getElementById('workshop-screen');
-    this.battleScreen   = document.getElementById('battle-screen');
+    this.menuScreen      = document.getElementById('menu-screen');
+    this.charSelectScreen = document.getElementById('character-select-screen');
+    this.workshopScreen  = document.getElementById('workshop-screen');
+    this.battleScreen    = document.getElementById('battle-screen');
 
     // ---- HUD ----
     this.playerHp  = document.getElementById('player-hp');
@@ -52,32 +53,39 @@ export class UIManager {
     this._pauseCb        = () => {};
     this._endCb          = () => {};
     this._loadoutChangeCb = () => {};
+    this._charSelectCb   = () => {};
 
     // Workshop state
     this.loadout = this._loadLoadoutFromStorage();
     this._renderWorkshop();
     this._updateStatBars();
 
+    // Character-select state — persisted across sessions.
+    this._charSelection = this._loadCharSelectionFromStorage();
+    this._renderCharSelection();
+
     this._setupOrientation();
     this._wireMenu();
+    this._wireCharacterSelect();
     this._wireWorkshop();
     this._wireModalButtons();
   }
 
   /* ---------- Screen control ---------- */
   showScreen(name) {
-    [this.menuScreen, this.workshopScreen, this.battleScreen].forEach(el => {
+    [this.menuScreen, this.charSelectScreen, this.workshopScreen, this.battleScreen].forEach(el => {
       if (!el) return;
       el.classList.toggle('show', el.id === `${name}-screen`);
     });
   }
 
   /* ---------- Callback hooks ---------- */
-  onMenuAction(fn)     { this._menuCb = fn; }
-  onWorkshopAction(fn) { this._workshopCb = fn; }
-  onPauseAction(fn)    { this._pauseCb = fn; }
-  onEndAction(fn)      { this._endCb = fn; }
-  onPauseClick(fn)     { this.pauseBtn.addEventListener('click', fn); }
+  onMenuAction(fn)            { this._menuCb = fn; }
+  onWorkshopAction(fn)        { this._workshopCb = fn; }
+  onCharacterSelectAction(fn) { this._charSelectCb = fn; }
+  onPauseAction(fn)           { this._pauseCb = fn; }
+  onEndAction(fn)             { this._endCb = fn; }
+  onPauseClick(fn)            { this.pauseBtn.addEventListener('click', fn); }
   onLoadoutChange(fn)  { this._loadoutChangeCb = fn; }
 
   /* ---------- Loadout (saved to localStorage) ---------- */
@@ -290,6 +298,53 @@ export class UIManager {
       const btn = e.target.closest('button');
       if (!btn) return;
       if (btn.dataset.action === 'commands-close') this.hideCommandsModal();
+    });
+  }
+
+  /* ---------- Character select ---------- */
+  getCharacterSelection() { return this._charSelection; }
+
+  setCharacterSelection(charId) {
+    if (charId !== 'jammo' && charId !== 'knight') return;
+    this._charSelection = charId;
+    this._renderCharSelection();
+    this._saveCharSelectionToStorage();
+  }
+
+  _renderCharSelection() {
+    if (!this.charSelectScreen) return;
+    this.charSelectScreen.querySelectorAll('.char-pick').forEach(b => {
+      b.classList.toggle('selected', b.dataset.char === this._charSelection);
+    });
+  }
+
+  _loadCharSelectionFromStorage() {
+    try {
+      const raw = localStorage.getItem('mecka.character.v1');
+      if (raw === 'jammo' || raw === 'knight') return raw;
+    } catch (e) { /* ignore */ }
+    return 'jammo';
+  }
+
+  _saveCharSelectionToStorage() {
+    try { localStorage.setItem('mecka.character.v1', this._charSelection); }
+    catch (e) { /* ignore */ }
+  }
+
+  _wireCharacterSelect() {
+    if (!this.charSelectScreen) return;
+    this.charSelectScreen.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-charselect]');
+      if (!btn) return;
+      const action = btn.dataset.charselect;
+      if (action === 'pick') {
+        const char = btn.dataset.char;
+        this._charSelectCb('pick', char);
+      } else if (action === 'fight') {
+        this._charSelectCb('fight');
+      } else if (action === 'back') {
+        this._charSelectCb('back');
+      }
     });
   }
 

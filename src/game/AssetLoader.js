@@ -1,33 +1,33 @@
 /* ============================================================
    AssetLoader.js
-   One-stop loader for:
-     - jammo.glb (base skinned character)
-     - 8 animation GLBs (Idle / Punching / Shooting / DashForward /
-       DodgeBackward / Shield / Dying / CelebratingVictory)
-     - 3 textures (red & blue albedos, shared normal map)
+   Loads everything the game needs at boot:
 
-   All animations come from Mixamo-rigged GLBs whose bone tracks
-   already target `mixamorig:*` names that match jammo.glb's
-   skeleton, so they can be applied directly via AnimationMixer
-   without retargeting.
+   - Two character packs:
+       jammo  (red & blue albedos, shared normal map, scale 2.0)
+       knight (single dark-armor albedo, scale 5.5 — knight.glb's
+               armature scale of 0.01 means it needs more
+               compensation than Jammo's 0.28)
+   - 13 animation GLBs (Idle, Jab, Hook, Cross, Uppercut, Punching,
+     Shooting, Dash, Dodge, Hit, Shield, Dying, CelebratingVictory)
+
+   All animation clips use Mixamo's standard `mixamorig:*` bone
+   naming convention, so a single set of clips drives both the
+   Jammo and Knight rigs.  Bones referenced by a clip but missing
+   from a particular rig are simply ignored by AnimationMixer.
    ============================================================ */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const BASE = './assets';
 
-// Internal list: [action-name, file] — keys match Fighter state names.
-// New per-action animations replace the fallbacks for jab, hook,
-// uppercut, dash, dodge, hit, plus a fresh `cross` move.  The
-// `punch` slot is kept as a generic fallback for anything we
-// don't have a dedicated clip for yet (sweep, counter).
+// Animation manifest: keys match Fighter state names.
 const ANIMATIONS = [
   ['idle',     'Idle.glb'],
   ['jab',      'Jab.glb'],
   ['hook',     'Hook.glb'],
   ['cross',    'Cross.glb'],
   ['uppercut', 'Uppercut.glb'],
-  ['punch',    'Punching.glb'],   // generic fallback
+  ['punch',    'Punching.glb'],     // generic fallback
   ['shoot',    'Shooting.glb'],
   ['dash',     'Dash.glb'],
   ['dodge',    'Dodge.glb'],
@@ -36,6 +36,36 @@ const ANIMATIONS = [
   ['ko',       'Dying.glb'],
   ['victory',  'CelebratingVictory.glb'],
 ];
+
+// Character pack manifest.  Each pack defines its mesh GLB and
+// its texture(s).  Per-pack mesh-scale and ground-lift compensate
+// for differences in the base armature scale and bind-pose origin.
+const CHARACTERS = {
+  jammo: {
+    mesh: 'jammo.glb',
+    textures: {
+      albedoRed:  'red_jammo_albedo_alpha.png',
+      albedoBlue: 'blue_jammo_albedo_alpha.png',
+      normal:     'jammo_normal.png',
+    },
+    meshScale: 2.0,
+    groundLift: 0.85,
+  },
+  knight: {
+    mesh: 'knight.glb',
+    textures: {
+      // Knight has a single dark-armor texture for both player and
+      // CPU usage.  No separate red/blue tints — the user picks
+      // Knight or Jammo at character select.
+      albedo: 'knight_albedo.png',
+    },
+    // Knight's Armature is exported with scale 0.01 (vs. Jammo's
+    // 0.28), so we need a much larger meshScale multiplier to put
+    // it at fight-ready proportions.
+    meshScale: 5.5,
+    groundLift: 0.85,
+  },
+};
 
 export async function loadAllAssets() {
   const gltfLoader = new GLTFLoader();
@@ -48,52 +78,56 @@ export async function loadAllAssets() {
     texLoader.load(url, res, undefined, rej)
   );
 
+  // Build flat lists for parallel loading.
+  const meshUrls = [];
+  const texEntries = [];   // { charId, key, url }
+  for (const [charId, pack] of Object.entries(CHARACTERS)) {
+    meshUrls.push({ charId, url: `${BASE}/${pack.mesh}` });
+    for (const [key, file] of Object.entries(pack.textures)) {
+      texEntries.push({ charId, key, url: `${BASE}/textures/${file}` });
+    }
+  }
+
   // Kick everything off in parallel.
-  const [
-    baseGltf,
-    albedoRed,
-    albedoBlue,
-    normalMap,
-    ...animGltfs
-  ] = await Promise.all([
-    load(`${BASE}/jammo.glb`),
-    loadTex(`${BASE}/textures/red_jammo_albedo_alpha.png`),
-    loadTex(`${BASE}/textures/blue_jammo_albedo_alpha.png`),
-    loadTex(`${BASE}/textures/jammo_normal.png`),
-    ...ANIMATIONS.map(([, file]) => load(`${BASE}/animations/${file}`)),
+  const [meshGltfs, texs, animGltfs] = await Promise.all([
+    Promise.all(meshUrls.map(({ url }) => load(url))),
+    Promise.all(texEntries.map(({ url }) => loadTex(url))),
+    Promise.all(ANIMATIONS.map(([, file]) => load(`${BASE}/animations/${file}`))),
   ]);
 
-  // Three.js r160 uses SRGBColorSpace for diffuse, LinearSRGBColorSpace for data maps.
-  albedoRed.colorSpace  = THREE.SRGBColorSpace;
-  albedoBlue.colorSpace = THREE.SRGBColorSpace;
-  albedoRed.flipY  = false;   // glTF convention — already baked to bottom-left UV
-  albedoBlue.flipY = false;
-  normalMap.flipY  = false;
+  // Set color spaces on textures.  Albedos are sRGB; normal maps stay linear.
+  texs.forEach((t, i) => {
+    const key = texEntries[i].key;
+    if (key.toLowerCase().includes('albedo')) t.colorSpace = THREE.SRGBColorSpace;
+    t.flipY = false;     // glTF convention
+  });
 
-  // Map each gltf's first animation clip to its name, and strip the
-  // horizontal root motion baked into Mixamo clips.  Mixamo exports
-  // translate the hip bone through world space (e.g. DashForward
-  // slides the character forward), which conflicts with the game's
-  // own position logic and makes fighters appear to teleport.
+  // Assemble per-character pack data.
+  const characters = {};
+  meshUrls.forEach(({ charId }, i) => {
+    characters[charId] = {
+      baseScene: meshGltfs[i].scene,
+      meshScale: CHARACTERS[charId].meshScale,
+      groundLift: CHARACTERS[charId].groundLift,
+      textures: {},
+    };
+  });
+  texs.forEach((t, i) => {
+    const { charId, key } = texEntries[i];
+    characters[charId].textures[key] = t;
+  });
+
+  // Strip root motion from each animation clip.  Mixamo exports
+  // translate the character through world space via two paths:
+  //   1. The Armature root node ("Armature", "Armature.001") — pure
+  //      world-space movement which the game-logic layer handles.
+  //   2. The Hips bone — adds body sway plus a vertical Y component
+  //      that lifts the character to stand height in the bind pose.
+  //      We zero X and Z but keep Y so the body lifts properly.
   //
-  // IMPORTANT: Three.js's PropertyBinding.sanitizeNodeName() strips
-  // the ':' from the bone name, so the track ends up named
-  // 'mixamorigHips.position', not 'mixamorig:Hips.position'.  We
-  // match with a regex that's tolerant of both forms.
-  // Strip root motion from animation clips.  Mixamo exports translate
-  // the character through world space via TWO separate places:
-  //   1. The Armature root node (e.g. "Armature.001") — moves the
-  //      entire skeleton in world space.  This is the main culprit
-  //      for the "teleport" effect when Dodge / Dash play.
-  //   2. The Hips bone — adds extra body sway and (importantly) a
-  //      vertical Y component that is what lifts the character to
-  //      stand height in the bind pose.  We must KEEP the hips Y so
-  //      the character doesn't sink into the floor, but we should
-  //      zero the X/Z so the body doesn't drift around.
-  //
-  // We also need to be tolerant of name sanitization: Three.js's
-  // PropertyBinding.sanitizeNodeName strips ':' from bone names, so
-  // 'mixamorig:Hips' becomes 'mixamorigHips' in the track name.
+  // Three.js's PropertyBinding.sanitizeNodeName() strips ':' from
+  // bone names, so 'mixamorig:Hips.position' becomes
+  // 'mixamorigHips.position'.  Regex below tolerates either form.
   const ARMATURE_POS_RE = /(^|\.)Armature(\.\d+)?\.position$/;
   const HIPS_POS_RE     = /(^|\.)mixamorig:?Hips\.position$/;
   const clips = {};
@@ -103,14 +137,11 @@ export async function loadAllAssets() {
     const clip = anims[0];
     for (const track of clip.tracks) {
       if (ARMATURE_POS_RE.test(track.name)) {
-        // Zero ALL components of the armature translation — this is
-        // pure world-space movement that the game logic handles.
         for (let j = 0; j < track.values.length; j++) track.values[j] = 0;
       } else if (HIPS_POS_RE.test(track.name)) {
-        // Zero only X (j) and Z (j+2).  Keep Y so the body lifts.
         for (let j = 0; j < track.values.length; j += 3) {
-          track.values[j]     = 0;  // X
-          track.values[j + 2] = 0;  // Z
+          track.values[j]     = 0;
+          track.values[j + 2] = 0;
         }
       }
     }
@@ -118,12 +149,7 @@ export async function loadAllAssets() {
   });
 
   return {
-    baseScene: baseGltf.scene,   // the jammo armature + meshes
-    clips,                       // { idle, punch, shoot, dash, dodge, shield, ko, victory }
-    textures: {
-      albedoRed,
-      albedoBlue,
-      normalMap,
-    },
+    characters,        // { jammo: {...}, knight: {...} }
+    clips,             // shared animation clips, keyed by action name
   };
 }

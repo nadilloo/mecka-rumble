@@ -23,6 +23,7 @@ import { FighterAI } from '../game/FighterAI.js';
 import { ProjectileManager } from '../game/ProjectileManager.js';
 import { UIManager } from '../ui/UIManager.js';
 import { WorkshopPreview } from '../game/WorkshopPreview.js';
+import { CharSelectPreview } from '../game/CharSelectPreview.js';
 
 export class App {
   constructor(assets) {
@@ -57,6 +58,16 @@ export class App {
         this.workshopPreview.setLoadout(lo);
       });
     }
+
+    // ---- Character-select preview (also its own Three scene). ----
+    const charSelectCanvas = document.getElementById('char-select-canvas');
+    if (charSelectCanvas) {
+      this.charSelectPreview = new CharSelectPreview(charSelectCanvas, assets);
+      this.charSelectPreview.setCharacter(this.ui.getCharacterSelection());
+    }
+
+    // Default player character, restored from saved selection.
+    this.playerCharacter = this.ui.getCharacterSelection();
 
     // Show menu by default.
     this.ui.showScreen('menu');
@@ -124,17 +135,22 @@ export class App {
     const handleShoot = (fighter, kind) =>
       this.projectiles.spawn(fighter, kind);
     const playerLoadout = this.ui.getLoadout();
-    // CPU uses default loadout (could be randomized later).
     const cpuLoadout = { ...CONFIG.defaultLoadout };
+
+    // Player picks their character at the character-select screen.
+    // CPU is always Jammo for the prototype.
+    const playerChar = this.playerCharacter || 'jammo';
 
     this.player = new Fighter({
       isPlayer: true, side: -1, assets: this._assets,
+      character: playerChar,
       startX: -F.startSeparation / 2,
       onShoot: handleShoot, onDamageDealt: this._onDamageDealt,
       loadout: playerLoadout,
     });
     this.cpu = new Fighter({
       isPlayer: false, side: +1, assets: this._assets,
+      character: 'jammo',
       startX: +F.startSeparation / 2,
       onShoot: handleShoot, onDamageDealt: this._onDamageDealt,
       loadout: cpuLoadout,
@@ -142,13 +158,11 @@ export class App {
     this.scene.add(this.player.root);
     this.scene.add(this.cpu.root);
 
-    // (Re)create AI.
     this.ai = new FighterAI(
       this.cpu, this.player, this.projectiles,
       CONFIG.difficulties[this.difficulty]
     );
 
-    // Apply current anim-speed setting.
     this.player.anim.setSpeed(this.animSpeed);
     this.cpu.anim.setSpeed(this.animSpeed);
   }
@@ -161,11 +175,24 @@ export class App {
   /* ---------- Menu / workshop / pause / end wiring ---------- */
   _wireMenuAndPauseModals() {
     this.ui.onMenuAction((action) => {
-      if (action === 'battle')        this._enterBattle();
+      if (action === 'battle')        this._enterCharacterSelect();
       else if (action === 'workshop') this._enterWorkshop();
     });
     this.ui.onWorkshopAction((action) => {
       if (action === 'save' || action === 'back') this._enterMenu();
+    });
+    // Character select: user picks Jammo or Knight, then launches battle.
+    this.ui.onCharacterSelectAction((action, payload) => {
+      if (action === 'pick') {
+        this.ui.setCharacterSelection(payload);
+        this.charSelectPreview?.setCharacter(payload);
+      }
+      else if (action === 'fight') {
+        this.playerCharacter = this.ui.getCharacterSelection();
+        this._enterBattle();
+      } else if (action === 'back') {
+        this._enterMenu();
+      }
     });
     this.ui.onPauseClick(() => {
       if (this._ended) return;
@@ -188,23 +215,31 @@ export class App {
   _enterMenu() {
     this.ui.showScreen('menu');
     this.workshopPreview?.stop();
+    this.charSelectPreview?.stop();
   }
   _enterWorkshop() {
     this.ui.showScreen('workshop');
     if (this.workshopPreview) {
       this.workshopPreview.setLoadout(this.ui.getLoadout());
       this.workshopPreview.start();
-      // Wait one frame for the screen to be visible, then resize.
       requestAnimationFrame(() => this.workshopPreview.resize());
+    }
+  }
+  _enterCharacterSelect() {
+    this.ui.showScreen('character-select');
+    if (this.charSelectPreview) {
+      // Show the currently-selected character in the preview viewport.
+      this.charSelectPreview.setCharacter(this.ui.getCharacterSelection());
+      this.charSelectPreview.start();
+      requestAnimationFrame(() => this.charSelectPreview.resize());
     }
   }
   _enterBattle() {
     const firstEntry = !this._battleReady;
     this._ensureBattleBuilt();
-    // Rebuild fighters so a freshly-saved loadout takes effect.
     this._buildFighters();
     this.ui.showScreen('battle');
-    // Force a renderer resize tick so the canvas matches the now-visible parent.
+    this.charSelectPreview?.stop();
     this.renderer.resize();
     this.fightCam.setAspect(this.renderer.aspect);
     this.reset();

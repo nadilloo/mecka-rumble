@@ -68,8 +68,7 @@ export const CONFIG = {
     activeInvuln: ['dodge'],     // these actions are invulnerable during their active phase
 
     startSeparation: 7.0,
-    meshScale: 2.0,
-    groundLift: 0.85,            // Y lift to keep feet on the floor
+    // meshScale and groundLift are now per-character — see AssetLoader.js
   },
 
   /* -------- Battery economy -------- */

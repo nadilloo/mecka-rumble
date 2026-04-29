@@ -30,6 +30,31 @@
     </div>
   </section>
 
+  <!-- ===== CHARACTER SELECT ===== -->
+  <section id="character-select-screen" class="screen">
+    <header class="workshop-header">
+      <button class="back-btn" data-charselect="back">‹ BACK</button>
+      <div class="workshop-title">CHOOSE YOUR MECKA</div>
+    </header>
+
+    <div class="charselect-preview">
+      <canvas id="char-select-canvas"></canvas>
+    </div>
+
+    <div class="charselect-picks">
+      <button class="char-pick selected" data-charselect="pick" data-char="jammo">
+        <div class="char-name">JAMMO</div>
+      </button>
+      <button class="char-pick" data-charselect="pick" data-char="knight">
+        <div class="char-name">KNIGHT</div>
+      </button>
+    </div>
+
+    <div class="charselect-footer">
+      <button class="modal-btn primary" data-charselect="fight">FIGHT</button>
+    </div>
+  </section>
+
   <!-- ===== WORKSHOP ===== -->
   <section id="workshop-screen" class="screen">
     <header class="workshop-header">

@@ -38,6 +38,7 @@ export class Fighter {
   constructor(opts) {
     this.isPlayer       = !!opts.isPlayer;
     this.side           = opts.side || (opts.isPlayer ? -1 : 1);
+    this.character      = opts.character || 'jammo';
     this.onShoot        = opts.onShoot || (() => {});
     this.onDamageDealt  = opts.onDamageDealt || (() => {});
 
@@ -59,13 +60,17 @@ export class Fighter {
     this.battery = C.batteryMax;
     this.facing = this.side > 0 ? -1 : 1;
 
+    // Pick the requested character pack from the asset manifest.
+    const pack = opts.assets.characters[this.character]
+              || opts.assets.characters.jammo;
+    this._pack = pack;
+
     // Build mesh.
-    this.root = this._buildMesh(opts.assets);
+    this.root = this._buildMesh(opts.assets, pack);
     this.root.position.x = opts.startX || 0;
-    // Lift the character so the feet sit ON the floor rather than sunk
-    // into it.  This compensates for the bind-pose origin and the
-    // Mixamo Hips Y deltas which are not always around the foot plane.
-    this.root.position.y = C.groundLift;
+    // Lift the character so feet sit ON the floor.  Use the pack's
+    // groundLift since different rigs have different bind-pose origins.
+    this.root.position.y = pack.groundLift;
     this.root.rotation.y = this.side < 0 ? Math.PI / 2 : -Math.PI / 2;
 
     this.anim = new AnimationController(this._animRoot, opts.assets.clips);
@@ -95,16 +100,22 @@ export class Fighter {
     return { power, armor, speed };
   }
 
-  _buildMesh(assets) {
+  _buildMesh(assets, pack) {
     const root = new THREE.Group();
 
-    const cloned = cloneSkinned(assets.baseScene);
-    cloned.scale.setScalar(C.meshScale);
+    const cloned = cloneSkinned(pack.baseScene);
+    cloned.scale.setScalar(pack.meshScale);
     if (!this.isPlayer) cloned.scale.x *= -1;   // mirror CPU stance
 
-    const albedo = this.isPlayer ? assets.textures.albedoRed
-                                 : assets.textures.albedoBlue;
-    const normal = assets.textures.normalMap;
+    // Pick the right albedo for this fighter.  Jammo has separate
+    // red/blue textures keyed off isPlayer; Knight has just one
+    // shared "knight" albedo (its color identity comes from being a
+    // different character entirely, not a red/blue tint).
+    const t = pack.textures;
+    const albedo = t.albedo
+                ? t.albedo
+                : (this.isPlayer ? t.albedoRed : t.albedoBlue);
+    const normal = t.normal || null;
 
     cloned.traverse((obj) => {
       if (!obj.isSkinnedMesh && !obj.isMesh) return;
@@ -119,10 +130,12 @@ export class Fighter {
           roughness: 0.2, metalness: 0.1,
         });
       } else {
-        obj.material = new THREE.MeshStandardMaterial({
-          map: albedo, normalMap: normal,
+        const matOpts = {
+          map: albedo,
           roughness: 0.55, metalness: 0.25,
-        });
+        };
+        if (normal) matOpts.normalMap = normal;
+        obj.material = new THREE.MeshStandardMaterial(matOpts);
       }
     });
 

@@ -96,18 +96,17 @@ export class WorkshopPreview {
     }
 
     const root = new THREE.Group();
-    const cloned = cloneSkinned(this.assets.baseScene);
-    // Workshop preview scales the character down so it fits in
-    // the small viewport with breathing room.  Battle scene uses
-    // CONFIG.fighter.meshScale unchanged.
-    cloned.scale.setScalar(CONFIG.fighter.meshScale * 0.67);
-    // Match the same ground lift the in-game Fighter applies, scaled
-    // by the preview's reduced scale, so feet sit on the pedestal.
-    root.position.y = CONFIG.fighter.groundLift * 0.67;
+    // Workshop currently always shows Jammo (the parts catalog uses
+    // Jammo bone names).  Knight workshop is future work.
+    const jammoPack = this.assets.characters.jammo;
+    const cloned = cloneSkinned(jammoPack.baseScene);
+    // Workshop preview scales the character down so it fits.
+    cloned.scale.setScalar(jammoPack.meshScale * 0.67);
+    root.position.y = jammoPack.groundLift * 0.67;
 
     // Player tint (red Mecka).
-    const albedo = this.assets.textures.albedoRed;
-    const normal = this.assets.textures.normalMap;
+    const albedo = jammoPack.textures.albedoRed;
+    const normal = jammoPack.textures.normal;
     cloned.traverse((obj) => {
       if (!obj.isSkinnedMesh && !obj.isMesh) return;
       const matName = (obj.material?.name || '').toLowerCase();

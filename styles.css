@@ -403,3 +403,64 @@ html, body {
   width: 100%; height: 100%;
   display: block;
 }
+
+/* ============================================================
+   Character select screen
+   ============================================================ */
+#character-select-screen {
+  background: linear-gradient(180deg, #0e0e1f 0%, #060611 100%);
+  overflow: hidden;
+}
+.charselect-preview {
+  flex: 1;
+  min-height: 240px;
+  background:
+    radial-gradient(ellipse at 50% 60%, #2a1d4a 0%, #110a26 70%, #05050a 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  position: relative;
+}
+#char-select-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+}
+
+.charselect-picks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.char-pick {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 14px 8px;
+  color: rgba(255,255,255,0.85);
+  font-family: inherit;
+  cursor: pointer; touch-action: manipulation;
+  transition: all 120ms;
+}
+.char-pick:active { transform: scale(0.97); }
+.char-pick.selected {
+  background: linear-gradient(180deg, #40c0ff 0%, #2080cc 100%);
+  border-color: rgba(122,252,255,0.55);
+  box-shadow: 0 0 12px rgba(64, 192, 255, 0.4);
+  color: #fff;
+}
+.char-name {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-align: center;
+}
+
+.charselect-footer {
+  padding: 12px 14px;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 12px);
+}
+.charselect-footer .modal-btn {
+  width: 100%;
+}
