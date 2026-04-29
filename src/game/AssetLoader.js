@@ -59,11 +59,17 @@ const CHARACTERS = {
       // Knight or Jammo at character select.
       albedo: 'knight_albedo.png',
     },
-    // Knight's Armature is exported with scale 0.01 (vs. Jammo's
-    // 0.28), so we need a much larger meshScale multiplier to put
-    // it at fight-ready proportions.
-    meshScale: 5.5,
-    groundLift: 0.85,
+    // Knight's combined armature scale (0.01) AND tiny mesh-space
+    // geometry (~0.02 units tall) put it at ~1mm world height
+    // without compensation.  To match Jammo's ~0.88-unit world
+    // height we need a very large meshScale: 4400.  This isn't a
+    // bug — the model was authored at a different scale.
+    meshScale: 4400,
+    // Knight's mesh pivot is at body center (y=0 in mesh-local is the
+    // midpoint of the body), unlike Jammo whose pivot is at the feet.
+    // groundLift here is half the world-space height (~0.44) so the
+    // feet land on the floor instead of below it.
+    groundLift: 0.44,
   },
 };
 
