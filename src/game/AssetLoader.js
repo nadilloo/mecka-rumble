@@ -40,6 +40,15 @@ const ANIMATIONS = [
 // Character pack manifest.  Each pack defines its mesh GLB and
 // its texture(s).  Per-pack mesh-scale and ground-lift compensate
 // for differences in the base armature scale and bind-pose origin.
+//
+// IMPORTANT: meshScale here is a STARTING point.  For Knight we
+// auto-correct after loading by measuring the actual world-space
+// bbox of the cloned character and rescaling to match a target
+// world height.  This avoids hand-tuning across rigs that were
+// authored at radically different scales (Jammo's mesh-space body
+// is ~1.57 units tall, Knight's is ~0.02 units tall).
+const TARGET_WORLD_HEIGHT = 1.8;   // approximate Jammo height in world units after meshScale=2.0
+
 const CHARACTERS = {
   jammo: {
     mesh: 'jammo.glb',
@@ -50,26 +59,16 @@ const CHARACTERS = {
     },
     meshScale: 2.0,
     groundLift: 0.85,
+    autoFit: false,         // Jammo is hand-tuned, leave it alone
   },
   knight: {
     mesh: 'knight.glb',
     textures: {
-      // Knight has a single dark-armor texture for both player and
-      // CPU usage.  No separate red/blue tints — the user picks
-      // Knight or Jammo at character select.
       albedo: 'knight_albedo.png',
     },
-    // Knight's combined armature scale (0.01) AND tiny mesh-space
-    // geometry (~0.02 units tall) put it at ~1mm world height
-    // without compensation.  To match Jammo's ~0.88-unit world
-    // height we need a very large meshScale: 4400.  This isn't a
-    // bug — the model was authored at a different scale.
-    meshScale: 4400,
-    // Knight's mesh pivot is at body center (y=0 in mesh-local is the
-    // midpoint of the body), unlike Jammo whose pivot is at the feet.
-    // groundLift here is half the world-space height (~0.44) so the
-    // feet land on the floor instead of below it.
-    groundLift: 0.44,
+    meshScale: 1.0,         // placeholder; recomputed via autoFit
+    groundLift: 0.0,        // recomputed via autoFit (pivot-aware)
+    autoFit: true,
   },
 };
 
@@ -153,6 +152,37 @@ export async function loadAllAssets() {
     }
     clips[name] = clip;
   });
+
+  // ---- Auto-fit pass for character packs that opted in ----
+  // Some rigs (e.g. Knight) are authored at very different scales
+  // than Jammo.  Rather than hand-tune meshScale / groundLift, we
+  // measure the actual rendered bbox once and set these values to
+  // produce a consistent fight-ready size with feet on the floor.
+  // Uses dynamic import to grab cloneSkinned at runtime (avoids
+  // pulling SkeletonUtils into the cold-load path for non-autofit
+  // packs).
+  const { clone: cloneSkinned } = await import('three/addons/utils/SkeletonUtils.js');
+  for (const charId of Object.keys(CHARACTERS)) {
+    if (!CHARACTERS[charId].autoFit) continue;
+    const pack = characters[charId];
+    // Make a sample clone with the placeholder meshScale (1.0).
+    const sample = cloneSkinned(pack.baseScene);
+    sample.scale.setScalar(1.0);
+    sample.updateMatrixWorld(true);
+
+    // Measure the world-space bbox of the sample.
+    const box = new THREE.Box3().setFromObject(sample);
+    if (!box.isEmpty()) {
+      const measuredHeight = box.max.y - box.min.y;
+      const scale = TARGET_WORLD_HEIGHT / measuredHeight;
+      pack.meshScale = scale;
+      // Place the feet on the floor: with the new scale, the bottom
+      // of the bbox in mesh-local is at (box.min.y * scale) — to
+      // make that land at world Y = 0, set groundLift = -box.min.y * scale.
+      pack.groundLift = -box.min.y * scale;
+      console.log(`[autoFit] ${charId}: measured h=${measuredHeight.toFixed(4)} → meshScale=${scale.toFixed(2)}, groundLift=${pack.groundLift.toFixed(2)}`);
+    }
+  }
 
   return {
     characters,        // { jammo: {...}, knight: {...} }
