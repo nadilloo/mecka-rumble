@@ -52,8 +52,8 @@ export class Fighter {
     this.invulnTime = 0;
     this.lockoutTime = 0;
     this.recentDamageTime = 0;
-    this.shielding = false;
-    this.counterReady = false;   // true during the parry window
+    this.shielding = false;       // legacy alias for blocking
+    this.crouching = false;        // true while CROUCH_DOWN is held
     this.stunTime = 0;
 
     this.hp = C.healthMax;
@@ -289,8 +289,6 @@ export class Fighter {
     this.state = name;
     // Drop shield when committing to an attack.
     if (this.shielding) this._setShield(false);
-    // Clear counter window if we were in one.
-    this.counterReady = false;
     // Tell the animator to play this action and stretch the clip
     // to the action's frame budget so timing matches visuals.
     this.anim.playFor(name, this.action.durationSec);
@@ -298,20 +296,20 @@ export class Fighter {
   }
 
   /* ---------------- Action API ---------------- */
-  jab()      { return this.canAct(ACT.jab.cost)      && this._startAction('jab'); }
-  hook()     { return this.canAct(ACT.hook.cost)     && this._startAction('hook'); }
-  cross()    { return this.canAct(ACT.cross.cost)    && this._startAction('cross'); }
-  uppercut() { return this.canAct(ACT.uppercut.cost) && this._startAction('uppercut'); }
+  jab()      { if (this.crouching) return false; return this.canAct(ACT.jab.cost)      && this._startAction('jab'); }
+  hook()     { if (this.crouching) return false; return this.canAct(ACT.hook.cost)     && this._startAction('hook'); }
+  cross()    { if (this.crouching) return false; return this.canAct(ACT.cross.cost)    && this._startAction('cross'); }
+  uppercut() { if (this.crouching) return false; return this.canAct(ACT.uppercut.cost) && this._startAction('uppercut'); }
 
   shoot() {
-    if (!this.canAct(ACT.shoot.cost)) return false;
-    this._spend(ACT.shoot.cost);
-    this._startAction('shoot');
-    this._pendingShot = { kind: 'shoot', frames: ACT.shoot.hitFrame };
-    return true;
+    // Regular shot was removed — taps now fire jabs (handled by App
+    // routing).  We still expose a stub here in case anything legacy
+    // calls it; it just no-ops rather than fail loudly.
+    return false;
   }
   superShot() {
     if (!this.canAct(ACT.super.cost)) return false;
+    if (this.crouching) return false;
     this._spend(ACT.super.cost);
     this._startAction('super');
     this._pendingShot = { kind: 'super', frames: ACT.super.hitFrame };
@@ -320,6 +318,7 @@ export class Fighter {
 
   dashForward(opponentX) {
     if (!this.canAct(ACT.dash.cost)) return false;
+    if (this.crouching) return false;
     this._spend(ACT.dash.cost);
     this._startAction('dash');
     const dir = sign(opponentX - this.root.position.x) || this.facing;
@@ -328,19 +327,15 @@ export class Fighter {
   }
   dodgeBack(opponentX) {
     if (!this.canAct(ACT.dodge.cost)) return false;
+    if (this.crouching) return false;
     this._spend(ACT.dodge.cost);
     this._startAction('dodge');
     const dir = sign(this.root.position.x - opponentX) || -this.facing;
     this._moveTarget = this.root.position.x + dir * C.dodgeDistance;
     return true;
   }
-  counter() {
-    if (!this.canAct(ACT.counter.cost)) return false;
-    this._spend(ACT.counter.cost);
-    this._startAction('counter');
-    this.counterReady = true;
-    return true;
-  }
+
+  /* Counter has been removed. */
 
   /** Spend the action's cost (called once at startup-phase commit). */
   _spendActionCost() {
@@ -350,11 +345,17 @@ export class Fighter {
     this.action._spent = true;
   }
 
-  /* ---------------- Shield ---------------- */
+  /* ---------------- Block (formerly Shield) ----------------
+   * Internally still called `shielding` — the renaming is at the
+   * input/UI layer, not in the simulation.  Block reduces incoming
+   * damage and slows battery regen, same as before.
+   */
   toggleShield() { this._setShield(!this.shielding); }
   setShielding(on) { this._setShield(on); }
+  setBlocking(on)  { this._setShield(on); }    // explicit alias
   _setShield(on) {
     if (this.isKO() || this.lockoutTime > 0) on = false;
+    if (this.crouching) on = false;             // can't block while crouched
     if (this.action && this._phase() !== PHASE.RECOVERY) on = false;
 
     if (on && !this.shielding) {
@@ -371,10 +372,37 @@ export class Fighter {
     }
   }
 
+  /* ---------------- Crouch ----------------
+   * While crouching:
+   *   - cannot start any other action (jab, dash, etc)
+   *   - regular projectiles miss (handled in ProjectileManager)
+   *   - melee attacks land but at reduced damage (handled in takeHit)
+   *   - super projectile flies overhead (handled in ProjectileManager)
+   */
+  setCrouching(on) {
+    if (this.isKO() || this.lockoutTime > 0) on = false;
+    if (this.shielding) on = false;             // can't crouch while blocking
+    if (this.action && this._phase() !== PHASE.RECOVERY) on = false;
+
+    if (on && !this.crouching) {
+      this.crouching = true;
+      this.state = 'crouching';
+      this.action = null;
+      // No dedicated crouch animation — bring the body lower visually
+      // by lowering the root.  Standing height comes back on release.
+      this._origRootY = this.root.position.y;
+      this.root.position.y = (this._origRootY ?? 0) - 0.4;
+    } else if (!on && this.crouching) {
+      this.crouching = false;
+      this.state = 'idle';
+      this.root.position.y = this._origRootY ?? 0;
+    }
+  }
+
   celebrate() { this.anim.play('victory'); this.action = null; }
 
   /* ---------------- Damage in ---------------- */
-  takeHit(damage, fromX, isPunch = false) {
+  takeHit(damage, fromX, isPunch = false, attackName = null) {
     if (this.invulnTime > 0 || this.isKO()) return 0;
 
     // Active-phase invulnerability (e.g. dodge i-frames).
@@ -383,11 +411,11 @@ export class Fighter {
       return 0;
     }
 
-    // Counter parries punches into stun on the attacker.
-    if (this.counterReady && isPunch && this.action?.name === 'counter') {
-      // Caller handles attacker stun — return -1 to signal a parry.
-      this.counterReady = false;
-      return -1;
+    // Crouch dodging: jab and cross are "high" attacks that whiff
+    // entirely against a crouching target.  Hook/uppercut/super
+    // still hit because they swing low or rise.
+    if (this.crouching && (attackName === 'jab' || attackName === 'cross')) {
+      return 0;
     }
 
     let dealt = damage * this.stats.armor;
@@ -406,8 +434,8 @@ export class Fighter {
 
     // No physical knockback — getting hit deals damage but doesn't
     // shove the fighter.  Hit reaction interrupts the current action
-    // (unless we were shielding).
-    if (!this.shielding) {
+    // (unless we were shielding or crouching).
+    if (!this.shielding && !this.crouching) {
       this._startAction('hit');
     }
     return dealt;
@@ -451,12 +479,10 @@ export class Fighter {
         const gapX = Math.abs(oppX - this.root.position.x);
         if (gapX <= reach) {
           const baseDmg = this.action.damage * this.stats.power;
-          const result = opponent.takeHit(baseDmg, this.root.position.x, true);
-          if (result === -1) {
-            // Parried — opponent counters.  Stun us briefly.
-            this.stun(C.counterStunDuration);
-            this.action = null;
-          } else if (result > 0) {
+          const result = opponent.takeHit(
+            baseDmg, this.root.position.x, true, this.action.name
+          );
+          if (result > 0) {
             this._spawnHitFX(opponent.root.position.clone().setY(1.2));
             this.onDamageDealt(this.action.name, result);
           }

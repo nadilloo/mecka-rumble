@@ -75,9 +75,9 @@ export class FighterAI {
       diff.postDamageRetreatSec > 0 &&
       me.recentDamageTime > (1.5 - diff.postDamageRetreatSec);
     if (justHit && Math.random() < diff.postDamageRetreatChance) {
-      // If far, shoot back while retreating.  If close, dodge back.
       if (gap < F.punchRange * 2 && me.dodgeBack(opp.root.position.x)) return;
-      if (battery > 12 && me.shoot()) return;
+      // No regular shot anymore — use super if battery allows.
+      if (battery > F.actions.super.cost && me.superShot()) return;
     }
 
     /* ---- HP-based retreat ---- */
@@ -88,10 +88,13 @@ export class FighterAI {
 
     /* ---- Range-based offense ---- */
     if (gap <= F.punchRange) {
-      // Melee range — pick jab or hook based on aggression.
+      // Melee range — pick jab, cross, or hook based on aggression.
       if (Math.random() < diff.punchChanceClose) {
-        const aggressive = Math.random() < 0.4;
-        const ok = aggressive ? me.hook() : me.jab();
+        const r = Math.random();
+        let ok;
+        if      (r < 0.50) ok = me.jab();
+        else if (r < 0.85) ok = me.cross();
+        else               ok = me.hook();
         if (!ok) me.dodgeBack(opp.root.position.x);
       } else {
         me.dodgeBack(opp.root.position.x);
@@ -100,12 +103,8 @@ export class FighterAI {
     }
 
     if (gap <= F.punchRange + 2.8) {
-      // Mid range.
-      if (battery > diff.batteryConservative && Math.random() < diff.shootChanceMid) {
-        if (!me.shoot()) me.dashForward(opp.root.position.x);
-      } else {
-        me.dashForward(opp.root.position.x);
-      }
+      // Mid range — close in with a dash.
+      me.dashForward(opp.root.position.x);
       return;
     }
 
@@ -113,11 +112,7 @@ export class FighterAI {
     if (battery >= F.batteryMax - 5 && Math.random() < diff.superChanceIfFull) {
       if (me.superShot()) return;
     }
-    if (battery > diff.batteryConservative && Math.random() < 0.45) {
-      me.shoot();
-    } else {
-      me.dashForward(opp.root.position.x);
-    }
+    me.dashForward(opp.root.position.x);
   }
 
   _incomingProjectile() {

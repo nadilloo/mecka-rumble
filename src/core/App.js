@@ -258,62 +258,56 @@ export class App {
 
   /* ---------- Input wiring ---------- */
   _wireInput() {
-    this.input.on('TAP',  () => { if (this._canAct()) this.player.shoot(); });
-    this.input.on('HOLD', () => { if (this._canAct()) this.player.superShot(); });
-
-    // Forward swipes — single event with length classification.
-    // Range gating: if the opponent is OUT of melee range, any forward
-    // swipe (regardless of length) becomes a dash.  In melee range,
-    // short = jab, long = hook, extra long = hook (dash distance is
-    // pointless when already in range).
-    // Forward swipes — single event with length classification.
-    // Range gating: if the opponent is OUT of melee reach, ANY
-    // forward swipe (regardless of length) becomes a dash.  In
-    // melee range, short = jab, long = cross.
-    this.input.on('SWIPE_FORWARD', ({ length }) => {
+    // TAP: cycles through the tap chain (jab → cross → jab → cross …).
+    // Out-of-range punches simply whiff — no contextual gating since
+    // the user wants every action available from any distance.
+    this.input.on('TAP_CHAIN', ({ move }) => {
       if (!this._canAct()) return;
-      const gap = Math.abs(this.cpu.root.position.x - this.player.root.position.x);
-      const F = CONFIG.fighter;
-      // Out of reach: always dash.  Skullgirls-style.
-      if (gap > F.punchReach + 0.15) {
-        this.player.dashForward(this.cpu.root.position.x);
-      } else if (length === 'short') {
-        this.player.jab();
-      } else {
-        this.player.cross();    // long (and dash-length) → cross when in range
-      }
+      if (move === 'jab')   this.player.jab();
+      else if (move === 'cross') this.player.cross();
     });
 
+    // SUPER: held still tap.
+    this.input.on('SUPER', () => {
+      if (this._canAct()) this.player.superShot();
+    });
+
+    // DASH: any forward swipe.
+    this.input.on('DASH', () => {
+      if (this._canAct()) this.player.dashForward(this.cpu.root.position.x);
+    });
+
+    // DODGE: quick backward swipe (released before block latches).
     this.input.on('DODGE', () => {
       if (this._canAct()) this.player.dodgeBack(this.cpu.root.position.x);
     });
 
-    // Forward-then-down → HOOK (replaces former SWEEP).
-    this.input.on('HOOK_MOTION', () => {
-      if (!this._canAct()) return;
-      const gap = Math.abs(this.cpu.root.position.x - this.player.root.position.x);
-      // Same gating as other melee.
-      if (gap > CONFIG.fighter.punchReach + 0.15) return;
-      this.player.hook();
-    });
-
-    // Quarter-circle forward → UPPERCUT.  Only fires in range.
-    this.input.on('UPPERCUT', () => {
-      if (!this._canAct()) return;
-      const gap = Math.abs(this.cpu.root.position.x - this.player.root.position.x);
-      if (gap > CONFIG.fighter.uppercutReach + 0.15) return;
-      this.player.uppercut();
-    });
-
-    this.input.on('COUNTER',  () => { if (this._canAct()) this.player.counter(); });
-
-    // Held shield: latched down on swipe-down, released on pointer up.
-    this.input.on('SHIELD_DOWN', () => {
+    // BLOCK: held backward swipe.
+    this.input.on('BLOCK_DOWN', () => {
       if (this._paused || this._ended) return;
-      this.player.setShielding(true);
+      this.player.setBlocking(true);
     });
-    this.input.on('SHIELD_UP', () => {
-      this.player?.setShielding(false);
+    this.input.on('BLOCK_UP', () => {
+      this.player?.setBlocking(false);
+    });
+
+    // CROUCH: held downward swipe.  Avoids super projectile and
+    // high attacks (jab/cross).
+    this.input.on('CROUCH_DOWN', () => {
+      if (this._paused || this._ended) return;
+      this.player.setCrouching(true);
+    });
+    this.input.on('CROUCH_UP', () => {
+      this.player?.setCrouching(false);
+    });
+
+    // UPPERCUT and HOOK: curved gestures.  No range gating — they
+    // simply whiff if the opponent is out of reach.
+    this.input.on('UPPERCUT', () => {
+      if (this._canAct()) this.player.uppercut();
+    });
+    this.input.on('HOOK', () => {
+      if (this._canAct()) this.player.hook();
     });
   }
   _canAct() { return !this._paused && !this._ended; }
@@ -410,9 +404,9 @@ export class App {
       f.lockoutTime = 0;
       f.recentDamageTime = 0;
       f.stunTime = 0;
-      f.counterReady = false;
       f.anim.stop();
       f.setShielding(false);
+      f.setCrouching(false);
     }
     this.player.root.position.x = -F.startSeparation / 2;
     this.cpu.root.position.x    = +F.startSeparation / 2;

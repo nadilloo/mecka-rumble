@@ -70,6 +70,11 @@ export class ProjectileManager {
 
       const target = p.ownerIsPlayer ? cpu : player;
       if (!target.isKO()) {
+        // If the target is crouching, the super projectile flies
+        // overhead and misses entirely.  This is what the crouch
+        // gesture exists for.
+        if (target.crouching) continue;
+
         const gap = Math.hypot(
           target.root.position.x - p.mesh.position.x,
           1.2 - p.mesh.position.y
