@@ -181,7 +181,10 @@ export class App {
   _wireMenuAndPauseModals() {
     this.ui.onMenuAction((action) => {
       if (action === 'battle')        this._enterCharacterSelect();
-      else if (action === 'multiplayer') this._enterMultiplayer();
+      else if (action === 'multiplayer') this._enterMultiplayer().catch(e => {
+        console.error('[MP] Unhandled error:', e);
+        alert('Multiplayer error: ' + e.message);
+      });
       else if (action === 'workshop') this._enterWorkshop();
     });
     this.ui.onWorkshopAction((action) => {
@@ -241,14 +244,23 @@ export class App {
    *     insertCoin resolves
    *  4. Determine host/joiner, assign fighters, start the fight */
   async _enterMultiplayer() {
-    this.ui.setAnnouncer('CONNECTING…', 10000);
+    console.log('[MP] Starting multiplayer...');
+    console.log('[MP] window.Playroom =', window.Playroom);
+
+    if (!window.Playroom) {
+      alert('Playroom SDK failed to load. Check your internet connection and refresh.');
+      return;
+    }
 
     try {
+      console.log('[MP] Creating PlayroomManager...');
       this._playroom = new PlayroomManager();
+      console.log('[MP] Calling init() (lobby will appear)...');
       await this._playroom.init();
+      console.log('[MP] insertCoin resolved — both players are in!');
     } catch (err) {
-      console.error('Playroom init failed:', err);
-      this.ui.setAnnouncer('CONNECTION FAILED', 2000);
+      console.error('[MP] Playroom init failed:', err);
+      alert('Multiplayer connection failed: ' + err.message);
       return;
     }
 

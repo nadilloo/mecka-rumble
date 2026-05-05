@@ -46,16 +46,23 @@ export class PlayroomManager {
   async init() {
     const P = this._P;
 
+    console.log('[PlayroomManager] Calling insertCoin with gameId:', GAME_ID);
     await P.insertCoin({
       gameId: GAME_ID,
       maxPlayersPerRoom: 2,
     });
+    console.log('[PlayroomManager] insertCoin resolved');
+    console.log('[PlayroomManager] isHost:', P.isHost());
+    console.log('[PlayroomManager] roomCode:', P.getRoomCode());
 
     // Register player-join callback.  We need to find the OTHER
     // player (not us) so we can read their action state.
     P.onPlayerJoin((playerState) => {
+      console.log('[PlayroomManager] Player joined:', playerState.id,
+                  '(me:', P.myPlayer().id, ')');
       if (playerState.id !== P.myPlayer().id) {
         this._opponentPlayer = playerState;
+        console.log('[PlayroomManager] Opponent identified:', playerState.id);
       }
 
       playerState.onQuit(() => {
