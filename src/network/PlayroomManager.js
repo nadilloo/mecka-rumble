@@ -27,10 +27,15 @@
 
 const GAME_ID = 'u76sQqlnVCxY2iHgV8B5';
 
+// Destructure the API functions from the UMD global.
+// This matches the pattern in Playroom's official docs:
+//   const { insertCoin, isHost, myPlayer, onPlayerJoin } = Playroom;
+const P = window.Playroom || {};
+const { insertCoin, isHost, myPlayer, onPlayerJoin, getRoomCode: _getRoomCode } = P;
+
 export class PlayroomManager {
   constructor() {
-    this._P = window.Playroom;
-    if (!this._P) throw new Error('Playroom SDK not loaded');
+    if (!insertCoin) throw new Error('Playroom SDK not loaded (insertCoin missing)');
 
     this._seq = 0;                 // monotonic action counter
     this._lastOpponentSeq = -1;    // last seq we processed from opponent
@@ -44,29 +49,27 @@ export class PlayroomManager {
    *  creation / join code input / player name picker).  Resolves
    *  when the host taps "Launch" and both players are in. */
   async init() {
-    const P = this._P;
-
     console.log('[PlayroomManager] Calling insertCoin with gameId:', GAME_ID);
-    await P.insertCoin({
+    await insertCoin({
       gameId: GAME_ID,
       maxPlayersPerRoom: 2,
     });
     console.log('[PlayroomManager] insertCoin resolved');
-    console.log('[PlayroomManager] isHost:', P.isHost());
-    console.log('[PlayroomManager] roomCode:', P.getRoomCode());
+    console.log('[PlayroomManager] isHost:', isHost());
+    console.log('[PlayroomManager] roomCode:', _getRoomCode());
 
     // Register player-join callback.  We need to find the OTHER
     // player (not us) so we can read their action state.
-    P.onPlayerJoin((playerState) => {
+    onPlayerJoin((playerState) => {
       console.log('[PlayroomManager] Player joined:', playerState.id,
-                  '(me:', P.myPlayer().id, ')');
-      if (playerState.id !== P.myPlayer().id) {
+                  '(me:', myPlayer().id, ')');
+      if (playerState.id !== myPlayer().id) {
         this._opponentPlayer = playerState;
         console.log('[PlayroomManager] Opponent identified:', playerState.id);
       }
 
       playerState.onQuit(() => {
-        if (playerState.id !== P.myPlayer().id) {
+        if (playerState.id !== myPlayer().id) {
           this._opponentPlayer = null;
           if (this._onOpponentLeave) this._onOpponentLeave();
         }
@@ -77,10 +80,10 @@ export class PlayroomManager {
   }
 
   /** True if this client is the host (room creator = red / left). */
-  amIHost() { return this._P.isHost(); }
+  amIHost() { return isHost(); }
 
   /** The room code players can share to invite the opponent. */
-  getRoomCode() { return this._P.getRoomCode(); }
+  getRoomCode() { return _getRoomCode(); }
 
   /** Register callback fired when we detect a new action from
    *  the opponent.  Called with (actionName). */
@@ -94,7 +97,7 @@ export class PlayroomManager {
   sendAction(actionName) {
     if (!this._ready) return;
     this._seq++;
-    this._P.myPlayer().setState('action', {
+    myPlayer().setState('action', {
       name: actionName,
       seq: this._seq,
     });

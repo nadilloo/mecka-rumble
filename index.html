@@ -9,17 +9,15 @@
   <title>Mecka Rumble</title>
   <link rel="stylesheet" href="./styles.css" />
 
-  <!-- React (required by Playroom's lobby UI) -->
-  <script src="https://cdn.joinplayroom.com/react@18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdn.joinplayroom.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-  <!-- Playroom multiplayer SDK (global: window.Playroom) -->
-  <script src="https://cdn.joinplayroom.com/playroomkit/multiplayer.umd.js"
-          onerror="console.error('PLAYROOM SDK FAILED TO LOAD'); document.title='SDK FAIL'"></script>
+  <!-- Playroom multiplayer SDK — full bundle includes React -->
+  <script src="https://unpkg.com/playroomkit/multiplayer.full.umd.js" crossorigin="anonymous"></script>
   <script>
     if (window.Playroom && window.Playroom.insertCoin) {
-      console.log('[boot] Playroom SDK loaded OK');
+      console.log('[boot] Playroom SDK loaded OK — insertCoin available');
+    } else if (window.Playroom) {
+      console.error('[boot] Playroom global exists but insertCoin missing. Keys:', Object.keys(window.Playroom));
     } else {
-      console.error('[boot] Playroom SDK NOT available after script load');
+      console.error('[boot] window.Playroom is undefined — SDK failed to load');
     }
   </script>
 
