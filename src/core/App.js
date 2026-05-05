@@ -24,6 +24,7 @@ import { ProjectileManager } from '../game/ProjectileManager.js';
 import { UIManager } from '../ui/UIManager.js';
 import { WorkshopPreview } from '../game/WorkshopPreview.js';
 import { CharSelectPreview } from '../game/CharSelectPreview.js';
+import { PlayroomManager } from '../network/PlayroomManager.js';
 
 export class App {
   constructor(assets) {
@@ -43,6 +44,10 @@ export class App {
     this._ended       = false;
     this._paused      = false;
     this._battleReady = false;     // true once 3D scene is built
+    this._isMultiplayer = false;   // true when in a Playroom match
+    this._myFighter    = null;     // the fighter this client controls
+    this._theirFighter = null;     // the fighter controlled by the opponent
+    this._playroom     = null;     // PlayroomManager instance
 
     // ---- UI first; the menu screen needs it before any 3D work ----
     this.ui = new UIManager();
@@ -176,6 +181,7 @@ export class App {
   _wireMenuAndPauseModals() {
     this.ui.onMenuAction((action) => {
       if (action === 'battle')        this._enterCharacterSelect();
+      else if (action === 'multiplayer') this._enterMultiplayer();
       else if (action === 'workshop') this._enterWorkshop();
     });
     this.ui.onWorkshopAction((action) => {
@@ -216,6 +222,7 @@ export class App {
     this.ui.showScreen('menu');
     this.workshopPreview?.stop();
     this.charSelectPreview?.stop();
+    this._isMultiplayer = false;
   }
   _enterWorkshop() {
     this.ui.showScreen('workshop');
@@ -223,6 +230,111 @@ export class App {
       this.workshopPreview.setLoadout(this.ui.getLoadout());
       this.workshopPreview.start();
       requestAnimationFrame(() => this.workshopPreview.resize());
+    }
+  }
+
+  /** Multiplayer flow:
+   *  1. Show a "connecting..." message
+   *  2. Call PlayroomManager.init() → Playroom's built-in lobby
+   *     overlay appears (room code, join, player names, "Launch")
+   *  3. Once the host taps Launch and both players are in,
+   *     insertCoin resolves
+   *  4. Determine host/joiner, assign fighters, start the fight */
+  async _enterMultiplayer() {
+    this.ui.setAnnouncer('CONNECTING…', 10000);
+
+    try {
+      this._playroom = new PlayroomManager();
+      await this._playroom.init();
+    } catch (err) {
+      console.error('Playroom init failed:', err);
+      this.ui.setAnnouncer('CONNECTION FAILED', 2000);
+      return;
+    }
+
+    this._isMultiplayer = true;
+
+    // Force Jammo for both fighters in multiplayer.
+    this.playerCharacter = 'jammo';
+
+    // Build the 3D battle scene if it doesn't exist yet.
+    this._ensureBattleBuilt();
+    this._buildFighters();
+
+    // Assign fighters based on host/joiner.
+    // Host = red / left (this.player)
+    // Joiner = blue / right (this.cpu)
+    if (this._playroom.amIHost()) {
+      this._myFighter    = this.player;
+      this._theirFighter = this.cpu;
+    } else {
+      this._myFighter    = this.cpu;
+      this._theirFighter = this.player;
+    }
+
+    // Wire opponent action reception.
+    this._playroom.onOpponentAction((actionName) => {
+      this._applyOpponentAction(actionName);
+    });
+
+    // Handle opponent disconnect.
+    this._playroom.onOpponentLeave(() => {
+      if (!this._ended) {
+        this._theirFighter.hp = 0;
+        this._theirFighter.state = 'ko';
+        this._theirFighter.anim.play('ko');
+        this.ui.setAnnouncer('OPPONENT DISCONNECTED', 2000);
+        this._ended = true;
+        setTimeout(() => {
+          const iWon = this._myFighter === this.player;
+          this.ui.showEndModal(iWon);
+        }, 2500);
+      }
+    });
+
+    // Enter the battle screen.
+    this.ui.showScreen('battle');
+    this.charSelectPreview?.stop();
+    this.renderer.resize();
+    this.fightCam.setAspect(this.renderer.aspect);
+    this.reset();
+    if (!this.loop.running) this.loop.start();
+    this.resume();
+
+    // Update HUD labels for multiplayer.
+    const leftLabel  = document.getElementById('hud-name-left');
+    const rightLabel = document.getElementById('hud-name-right');
+    if (this._playroom.amIHost()) {
+      if (leftLabel)  leftLabel.textContent = 'YOU';
+      if (rightLabel) rightLabel.textContent = 'P2';
+    } else {
+      if (leftLabel)  leftLabel.textContent = 'P1';
+      if (rightLabel) rightLabel.textContent = 'YOU';
+    }
+
+    // Show role banner so each player knows who they are.
+    const role = this._playroom.amIHost() ? 'P1 — RED MECKA' : 'P2 — BLUE MECKA';
+    this.ui.setAnnouncer(role, 2500);
+  }
+
+  /** Apply an action received from the network opponent to their
+   *  local fighter.  This is the mirror of the local input wiring. */
+  _applyOpponentAction(action) {
+    const f = this._theirFighter;
+    const myX = this._myFighter.root.position.x;
+    if (!f || f.isKO()) return;
+    switch (action) {
+      case 'jab':        f.jab(); break;
+      case 'cross':      f.cross(); break;
+      case 'hook':       f.hook(); break;
+      case 'uppercut':   f.uppercut(); break;
+      case 'super':      f.superShot(); break;
+      case 'dash':       f.dashForward(myX); break;
+      case 'dodge':      f.dodgeBack(myX); break;
+      case 'block_down': f.setBlocking(true); break;
+      case 'block_up':   f.setBlocking(false); break;
+      case 'crouch_down':f.setCrouching(true); break;
+      case 'crouch_up':  f.setCrouching(false); break;
     }
   }
   _enterCharacterSelect() {
@@ -235,6 +347,9 @@ export class App {
     }
   }
   _enterBattle() {
+    this._isMultiplayer = false;     // single-player mode
+    this._myFighter = null;
+    this._theirFighter = null;
     const firstEntry = !this._battleReady;
     this._ensureBattleBuilt();
     this._buildFighters();
@@ -245,6 +360,13 @@ export class App {
     this.reset();
     if (firstEntry) this.loop.start();
     this.resume();
+
+    // Reset HUD labels to single-player.
+    const leftLabel  = document.getElementById('hud-name-left');
+    const rightLabel = document.getElementById('hud-name-right');
+    if (leftLabel)  leftLabel.textContent = 'PLAYER';
+    if (rightLabel) rightLabel.textContent = 'CPU';
+
     this.ui.setAnnouncer('FIGHT!', 1200);
   }
   _returnToMenu() {
@@ -253,61 +375,71 @@ export class App {
     this.ui.hidePauseModal();
     this.ui.hideEndModal();
     this.ui.hideCommandsModal();
+    this._isMultiplayer = false;
+    this._playroom = null;
+    this._myFighter = null;
+    this._theirFighter = null;
     this._enterMenu();
   }
 
   /* ---------- Input wiring ---------- */
   _wireInput() {
-    // TAP: cycles through the tap chain (jab → cross → jab → cross …).
-    // Out-of-range punches simply whiff — no contextual gating since
-    // the user wants every action available from any distance.
+    // Helper: get the fighter this client controls.
+    const me = () => this._isMultiplayer ? this._myFighter : this.player;
+    // Helper: get the opponent fighter (for dash/dodge target position).
+    const them = () => this._isMultiplayer ? this._theirFighter : this.cpu;
+    // Helper: send an action name to the network (no-op in single player).
+    const send = (name) => { if (this._isMultiplayer && this._playroom) this._playroom.sendAction(name); };
+
     this.input.on('TAP_CHAIN', ({ move }) => {
       if (!this._canAct()) return;
-      if (move === 'jab')   this.player.jab();
-      else if (move === 'cross') this.player.cross();
+      const f = me();
+      if (move === 'jab')   { if (f.jab())   send('jab'); }
+      else if (move === 'cross') { if (f.cross()) send('cross'); }
     });
 
-    // SUPER: held still tap.
     this.input.on('SUPER', () => {
-      if (this._canAct()) this.player.superShot();
+      if (!this._canAct()) return;
+      if (me().superShot()) send('super');
     });
 
-    // DASH: any forward swipe.
     this.input.on('DASH', () => {
-      if (this._canAct()) this.player.dashForward(this.cpu.root.position.x);
+      if (!this._canAct()) return;
+      if (me().dashForward(them().root.position.x)) send('dash');
     });
 
-    // DODGE: quick backward swipe (released before block latches).
     this.input.on('DODGE', () => {
-      if (this._canAct()) this.player.dodgeBack(this.cpu.root.position.x);
+      if (!this._canAct()) return;
+      if (me().dodgeBack(them().root.position.x)) send('dodge');
     });
 
-    // BLOCK: held backward swipe.
     this.input.on('BLOCK_DOWN', () => {
       if (this._paused || this._ended) return;
-      this.player.setBlocking(true);
+      me().setBlocking(true);
+      send('block_down');
     });
     this.input.on('BLOCK_UP', () => {
-      this.player?.setBlocking(false);
+      me()?.setBlocking(false);
+      send('block_up');
     });
 
-    // CROUCH: held downward swipe.  Avoids super projectile and
-    // high attacks (jab/cross).
     this.input.on('CROUCH_DOWN', () => {
       if (this._paused || this._ended) return;
-      this.player.setCrouching(true);
+      me().setCrouching(true);
+      send('crouch_down');
     });
     this.input.on('CROUCH_UP', () => {
-      this.player?.setCrouching(false);
+      me()?.setCrouching(false);
+      send('crouch_up');
     });
 
-    // UPPERCUT and HOOK: curved gestures.  No range gating — they
-    // simply whiff if the opponent is out of reach.
     this.input.on('UPPERCUT', () => {
-      if (this._canAct()) this.player.uppercut();
+      if (!this._canAct()) return;
+      if (me().uppercut()) send('uppercut');
     });
     this.input.on('HOOK', () => {
-      if (this._canAct()) this.player.hook();
+      if (!this._canAct()) return;
+      if (me().hook()) send('hook');
     });
   }
   _canAct() { return !this._paused && !this._ended; }
@@ -349,11 +481,29 @@ export class App {
       return;
     }
 
-    this.input.setPlayerFacingRight(this.player.facing > 0);
+    // Set the correct facing direction for the input layer.
+    // In single-player, the player always faces right (+1).
+    // In multiplayer, the joiner faces left (-1).
+    if (this._isMultiplayer) {
+      this.input.setPlayerFacingRight(this._playroom.amIHost());
+    } else {
+      this.input.setPlayerFacingRight(this.player.facing > 0);
+    }
+
+    // Poll network for opponent actions (no-op if not multiplayer).
+    if (this._isMultiplayer && this._playroom) {
+      this._playroom.poll();
+    }
+
     this.player.update(dt, this.cpu);
     this.cpu.update(dt, this.player);
     this._separateFighters();
-    this.ai.update(dt);
+
+    // AI only runs in single-player mode.
+    if (!this._isMultiplayer) {
+      this.ai.update(dt);
+    }
+
     this.projectiles.update(dt, this.player, this.cpu);
     this.fightCam.update(dt, this.player, this.cpu);
     this.ui.update(dt, this.player, this.cpu);
@@ -362,12 +512,18 @@ export class App {
       if (this.player.isKO()) {
         this.cpu.celebrate();
         this.ui.setAnnouncer('K.O.', 2000);
-        setTimeout(() => this.ui.showEndModal(false), 3000);
+        const iWon = this._isMultiplayer
+          ? (this._myFighter !== this.player)   // my fighter survived
+          : false;
+        setTimeout(() => this.ui.showEndModal(iWon), 3000);
         this._ended = true;
       } else if (this.cpu.isKO()) {
         this.player.celebrate();
         this.ui.setAnnouncer('K.O.', 2000);
-        setTimeout(() => this.ui.showEndModal(true), 3000);
+        const iWon = this._isMultiplayer
+          ? (this._myFighter !== this.cpu)     // my fighter survived
+          : true;
+        setTimeout(() => this.ui.showEndModal(iWon), 3000);
         this._ended = true;
       }
     }

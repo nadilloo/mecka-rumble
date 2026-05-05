@@ -259,7 +259,7 @@ export class Fighter {
    *  Yes if: idle, OR in the recovery phase of the current action. */
   canAct(cost = 0) {
     if (this.isKO() || this.lockoutTime > 0 || this.stunTime > 0) return false;
-    if (this.battery < cost) return false;
+    if (!B.disabled && this.battery < cost) return false;
     if (this.action) {
       const ph = this._phase();
       if (ph !== PHASE.RECOVERY) return false;
@@ -268,6 +268,7 @@ export class Fighter {
   }
 
   _spend(cost) {
+    if (B.disabled) return;   // battery depletion turned off
     this.battery = Math.max(0, this.battery - cost);
     if (this.battery <= 0) this.lockoutTime = B.emptyLockoutSeconds;
   }

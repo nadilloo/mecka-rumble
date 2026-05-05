@@ -73,9 +73,8 @@ export const CONFIG = {
 
   /* -------- Battery economy -------- */
   battery: {
-    // Per-action costs are defined in fighter.actions.*.cost.
-    // Shielding does NOT drain battery — instead it slows regen.
-    shieldRegenMultiplier: 0.25,    // while shielding, regen is 25% normal speed
+    disabled: true,                  // battery doesn't deplete for now
+    shieldRegenMultiplier: 0.25,
 
     regenIdlePerSec:    14,
     regenMovingPerSec:   9,
