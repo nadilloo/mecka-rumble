@@ -56,6 +56,32 @@ export class Fighter {
     this.crouching = false;        // true while CROUCH_DOWN is held
     this.stunTime = 0;
 
+    // ---- Fighting-game state (new) ----
+    // Hit / block stun: when > 0, fighter cannot act.  Counted down
+    // in seconds (frames / 60) so we don't drift if the loop runs at
+    // off-60Hz.  When stun > 0 and the fighter was in an action, the
+    // action is replaced with the appropriate reaction state.
+    this.hitstunTime  = 0;
+    this.blockstunTime = 0;
+
+    // Combo counter — how many hits we've taken in the current
+    // "combo window".  Resets when we exit hitstun.  Used by the
+    // ATTACKER's damage scaling, but it's tracked on the VICTIM
+    // because that's where the chain lives.
+    this.comboCount = 0;
+    this.comboResetTimer = 0;     // small grace period after stun ends
+
+    // Hit-stop: brief mutual freeze when an attack connects.  When
+    // > 0, the fighter's animation and action timer are paused.
+    // Both attacker and victim get the same hit-stop value so they
+    // freeze simultaneously.
+    this.hitStopTime = 0;
+
+    // Pushback velocity — applied to root.position.x with damping.
+    // Set when the fighter is hit, blocks, or hits an opponent at
+    // the corner (corner pushback reverses onto the attacker).
+    this.pushbackVel = 0;
+
     this.hp = C.healthMax;
     this.battery = C.batteryMax;
     this.facing = this.side > 0 ? -1 : 1;
@@ -255,10 +281,29 @@ export class Fighter {
     return PHASE.RECOVERY;
   }
 
+  /** Is the current action invulnerable on this exact frame?
+   *  Reads the action's `invuln: [start, end]` range (1-indexed,
+   *  inclusive).  Returns false for any action without an invuln
+   *  range, or when no action is active. */
+  _isInvuln() {
+    if (!this.action) return false;
+    const d = ACT[this.action.name];
+    if (!d || !d.invuln) return false;
+    // Frame number is 1-indexed for designer ergonomics:
+    // elapsedFrames 0 → frame 1.
+    const f = this.action.elapsedFrames + 1;
+    return f >= d.invuln[0] && f <= d.invuln[1];
+  }
+
   /** Can this fighter start a new action right now?
-   *  Yes if: idle, OR in the recovery phase of the current action. */
+   *  Yes if: idle, OR in the recovery phase of the current action,
+   *  AND not in stun, hitstop, or any other locked state. */
   canAct(cost = 0) {
     if (this.isKO() || this.lockoutTime > 0 || this.stunTime > 0) return false;
+    // New: hitstun and blockstun also block new actions.
+    if (this.hitstunTime > 0 || this.blockstunTime > 0) return false;
+    // New: hit-stop freezes everything.
+    if (this.hitStopTime > 0) return false;
     if (!B.disabled && this.battery < cost) return false;
     if (this.action) {
       const ph = this._phase();
@@ -403,43 +448,107 @@ export class Fighter {
   celebrate() { this.anim.play('victory'); this.action = null; }
 
   /* ---------------- Damage in ---------------- */
+  /** Apply an incoming attack.  Returns an object describing what
+   *  happened, so the caller (the attacker's update loop) can react —
+   *  e.g. enter mutual hit-stop, apply mirrored pushback, increment
+   *  the attacker's hit counter for FX.
+   *
+   *  Result shape:
+   *     { dealt, blocked, missed, invuln, ko, attackName }
+   *
+   *  - missed:  true if the hit didn't connect (crouch dodge / invuln)
+   *  - blocked: true if the defender was blocking
+   *  - invuln:  true if startup-invuln saved the defender (e.g. uppercut)
+   *  - ko:      true if this hit took HP to 0 */
   takeHit(damage, fromX, isPunch = false, attackName = null) {
-    if (this.invulnTime > 0 || this.isKO()) return 0;
-
-    // Active-phase invulnerability (e.g. dodge i-frames).
-    if (this.action && this._phase() === PHASE.ACTIVE
-        && C.activeInvuln.includes(this.action.name)) {
-      return 0;
+    if (this.isKO()) {
+      return { dealt: 0, missed: true, ko: true, attackName };
     }
 
-    // Crouch dodging: jab and cross are "high" attacks that whiff
-    // entirely against a crouching target.  Hook/uppercut/super
-    // still hit because they swing low or rise.
-    if (this.crouching && (attackName === 'jab' || attackName === 'cross')) {
-      return 0;
+    // i-frames after a previous hit (small grace window so a single
+    // attack doesn't multi-hit).
+    if (this.invulnTime > 0) {
+      return { dealt: 0, missed: true, attackName };
     }
 
-    let dealt = damage * this.stats.armor;
-    if (this.shielding) dealt *= D.shieldReduction;
+    // Frame-data invulnerability — if the defender is currently in
+    // an invuln frame range of their own action (uppercut startup,
+    // dodge active), the attack whiffs entirely.
+    if (this._isInvuln()) {
+      return { dealt: 0, missed: true, invuln: true, attackName };
+    }
+
+    // Crouch dodging: jab/cross/super are "high" attacks that whiff
+    // entirely against a crouching target.  Hook and uppercut still
+    // connect.
+    if (this.crouching && (attackName === 'jab' || attackName === 'cross' || attackName === 'super')) {
+      return { dealt: 0, missed: true, attackName };
+    }
+
+    const ad = ACT[attackName] || {};
+    const blocked = this.shielding && !this.crouching;
+
+    // Apply combo scaling if this is a follow-up hit during an
+    // existing combo.  Scaling does not apply to blocked hits.
+    let scale = 1.0;
+    if (!blocked) {
+      const idx = Math.min(this.comboCount, C.comboScaling.length - 1);
+      scale = C.comboScaling[idx];
+    }
+
+    let dealt = damage * this.stats.armor * scale;
+    if (blocked) dealt *= D.shieldReduction;     // chip damage on block
+
     this.hp = Math.max(0, this.hp - dealt);
-    this.invulnTime = C.invulnDuration;
+    this.invulnTime = 0.05;        // short i-frame so one attack can't double-hit
     this.recentDamageTime = 1.5;
+
+    // Apply stun.  Use frame data if present, else a short fallback.
+    const hitStunFrames   = ad.hitStun   ?? 14;
+    const blockStunFrames = ad.blockStun ?? 8;
+
+    if (blocked) {
+      this.blockstunTime = Math.max(this.blockstunTime, blockStunFrames * FRAME);
+      // Combo counter does NOT advance on block — but it doesn't reset either.
+    } else {
+      this.hitstunTime = Math.max(this.hitstunTime, hitStunFrames * FRAME);
+      this.comboCount += 1;
+      this.comboResetTimer = 0;     // any new hit clears the grace timer
+    }
+
+    // Apply pushback on the victim.  Direction = away from attacker.
+    const pushback = ad.pushback ?? 0;
+    if (pushback > 0) {
+      const dirX = sign(this.root.position.x - fromX) || -this.facing;
+      this.pushbackVel += dirX * pushback * 12;   // *12 turns "world units"
+                                                   // into a velocity that
+                                                   // damps to ~that distance.
+    }
+
+    // Hit-stop: brief mutual freeze.  Heavy attacks freeze longer.
+    const heavy = (attackName === 'hook' || attackName === 'uppercut' || attackName === 'super');
+    const stopFrames = heavy ? C.hitStopFramesHeavy : C.hitStopFrames;
+    this.hitStopTime = Math.max(this.hitStopTime, stopFrames * FRAME);
 
     if (this.hp <= 0) {
       this.state = 'ko';
       this.action = null;
       this.anim.play('ko');
       this._setShield(false);
-      return dealt;
+      return { dealt, ko: true, attackName };
     }
 
-    // No physical knockback — getting hit deals damage but doesn't
-    // shove the fighter.  Hit reaction interrupts the current action
-    // (unless we were shielding or crouching).
-    if (!this.shielding && !this.crouching) {
+    // Interrupt current action with a hit reaction (unless we were
+    // blocking — block stun keeps the block animation).
+    if (!blocked && !this.crouching) {
       this._startAction('hit');
+      // Stretch the hit anim to fill the hitstun duration so the
+      // reaction visually matches the lock window.
+      this.action.durationSec = this.hitstunTime;
+      this.anim.playFor('hit', this.hitstunTime);
     }
-    return dealt;
+
+    return { dealt, blocked, attackName };
   }
 
   stun(duration) {
@@ -454,13 +563,79 @@ export class Fighter {
     const oppX = opponent.root.position.x;
     this.facing = this.side < 0 ? 1 : -1;
 
-    // Timers.
+    // ---- Hit-stop: brief mutual freeze on attack connect ----
+    // When > 0, ALL other timers and the action timer are frozen.
+    // This is the visual "punch impact" feel — both characters
+    // appear to pause for a few frames so the hit reads clearly.
+    if (this.hitStopTime > 0) {
+      this.hitStopTime -= dt;
+      // While frozen, freeze the animation playhead too.
+      this.anim.setPaused(true);
+      // Skip ALL the rest of update — no action progression,
+      // no movement, no other timer countdown.  The opponent's
+      // own update handles their freeze independently.
+      return;
+    } else {
+      this.anim.setPaused(false);
+    }
+
+    // Timers (regular flow once not in hit-stop).
     if (this.invulnTime  > 0) this.invulnTime  -= dt;
     if (this.lockoutTime > 0) this.lockoutTime -= dt;
     if (this.recentDamageTime > 0) this.recentDamageTime -= dt;
     if (this.stunTime    > 0) {
       this.stunTime -= dt;
       if (this.stunTime <= 0 && this.state === 'stun') this.state = 'idle';
+    }
+
+    // ---- Hit stun / block stun ----
+    if (this.hitstunTime > 0) {
+      this.hitstunTime -= dt;
+      if (this.hitstunTime <= 0) {
+        this.hitstunTime = 0;
+        // End hit reaction, return to idle.  Combo counter has a
+        // small grace window before resetting so visual hits that
+        // arrive 1-2 frames late still register as part of the combo.
+        if (this.action && this.action.name === 'hit') {
+          this.action = null;
+          this.state = 'idle';
+          this.anim.stop();
+        }
+        this.comboResetTimer = 0.20;     // 200ms grace
+      }
+    }
+    if (this.blockstunTime > 0) {
+      this.blockstunTime -= dt;
+      if (this.blockstunTime <= 0) this.blockstunTime = 0;
+    }
+
+    // Combo grace countdown — once expired, reset combo counter.
+    if (this.comboResetTimer > 0 && this.hitstunTime <= 0) {
+      this.comboResetTimer -= dt;
+      if (this.comboResetTimer <= 0) {
+        this.comboCount = 0;
+      }
+    }
+
+    // ---- Pushback application + decay ----
+    // Pushback is a velocity that decays exponentially.  Each frame
+    // we move the fighter by the current velocity, then damp it.
+    if (Math.abs(this.pushbackVel) > 0.01) {
+      this.root.position.x += this.pushbackVel * dt;
+      // Critically-damped decay: ~6× per second feels punchy but
+      // doesn't slide forever.
+      this.pushbackVel = damp(this.pushbackVel, 0, 8, dt);
+      // Clamp to lane.
+      this.root.position.x = clamp(
+        this.root.position.x,
+        -C.laneHalfWidth, C.laneHalfWidth
+      );
+      // If we hit the wall, kill the velocity so we don't pile up.
+      if (Math.abs(this.root.position.x) >= C.laneHalfWidth - 0.001) {
+        this.pushbackVel = 0;
+      }
+    } else {
+      this.pushbackVel = 0;
     }
 
     // Action progression.
@@ -483,9 +658,38 @@ export class Fighter {
           const result = opponent.takeHit(
             baseDmg, this.root.position.x, true, this.action.name
           );
-          if (result > 0) {
+
+          // Mutual hit-stop on connect (both blocked and clean hits).
+          // The defender's hit-stop is set inside takeHit; this matches it.
+          if (result.dealt > 0 || result.blocked) {
+            const heavy = (this.action.name === 'hook' || this.action.name === 'uppercut');
+            const stopFrames = heavy ? C.hitStopFramesHeavy : C.hitStopFrames;
+            this.hitStopTime = Math.max(this.hitStopTime, stopFrames * FRAME);
+
+            // Pushback on the attacker.  Normally fighters separate
+            // on hit/block, but when the DEFENDER is at the corner,
+            // the pushback they "would have" taken is redirected
+            // back into the attacker — so the attacker gets shoved
+            // away from the corner instead.  This is the classic
+            // anti-cornering mechanic.
+            const ad = ACT[this.action.name] || {};
+            const pushback = ad.pushback ?? 0;
+            if (pushback > 0) {
+              const myDir = sign(this.root.position.x - oppX) || this.facing;
+              const wallEdge = C.laneHalfWidth - C.cornerEpsilon;
+              const defAtCorner = Math.abs(opponent.root.position.x) >= wallEdge;
+              // If defender is cornered, double the attacker's
+              // pushback (their share + the share that would've gone
+              // into the wall).  Otherwise apply the normal small
+              // amount of attacker separation.
+              const attackerPushback = defAtCorner ? pushback * 2.0 : pushback * 0.4;
+              this.pushbackVel += myDir * attackerPushback * 12;
+            }
+          }
+
+          if (result.dealt > 0) {
             this._spawnHitFX(opponent.root.position.clone().setY(1.2));
-            this.onDamageDealt(this.action.name, result);
+            this.onDamageDealt(this.action.name, result.dealt, result.blocked);
           }
         }
         this.action.hitChecked = true;

@@ -39,33 +39,87 @@ export const CONFIG = {
 
     // ---- Action descriptors ----
     // Each action specifies, in 60fps frames:
-    //   startup   : commit phase, can't be cancelled
-    //   active    : hit window
-    //   recovery  : winding-down phase, CAN be cancelled into another move
-    //   total     : startup + active + recovery (clip will play this long)
-    //   hitFrame  : frame at which the hit-check fires (within active)
+    //   startup     : commit phase, can be CANCELLED only by an INVULN flag.
+    //                 During this phase: no hitbox, but the move is committed.
+    //   active      : hit window
+    //   recovery    : winding-down phase, CAN be cancelled into a follow-up
+    //                 attack (this is how the dial-a-combo branches work).
+    //   hitFrame    : frame at which the hit-check fires (within active)
+    //   hitStun     : frames the VICTIM is locked when this attack hits.
+    //                 Determines whether follow-up attacks combo.
+    //   blockStun   : frames the BLOCKER is locked when this attack is blocked.
+    //                 Shorter than hitStun → blocker recovers sooner.
+    //   pushback    : world units fighters separate on hit/block.
+    //   invuln      : optional [start, end] frame range (1-indexed) during
+    //                 which the attacker is invulnerable. Used by uppercut.
     //
-    // Hit-pause handles its own freeze separately and does not count
-    // against these frames.
+    // Frame-advantage formulae (informational, computed at runtime):
+    //   onHit   = hitStun   - (active - 1) - recovery
+    //   onBlock = blockStun - (active - 1) - recovery
     //
-    // Times are derived as frames / 60.
+    // Hit-stop (a brief freeze on connect) is separate and doesn't count
+    // against these frames.  See damage.hitStop below.
     actions: {
-      jab:      { startup: 3,  active: 2, recovery: 6,  hitFrame: 4,  damage: 7,  cost: 8 },
-      hook:     { startup: 6,  active: 3, recovery: 12, hitFrame: 8,  damage: 14, cost: 14 },
-      cross:    { startup: 5,  active: 3, recovery: 12, hitFrame: 7,  damage: 13, cost: 13 },
-      uppercut: { startup: 5,  active: 4, recovery: 16, hitFrame: 8,  damage: 18, cost: 20 },
-      shoot:    { startup: 4,  active: 0, recovery: 8,  hitFrame: 4,  damage: 8,  cost: 8  },
-      super:    { startup: 12, active: 4, recovery: 14, hitFrame: 14, damage: 22, cost: 35 },
-      dash:     { startup: 2,  active: 8, recovery: 4,  hitFrame: -1, damage: 0,  cost: 5  },   // 25% of old 18
-      dodge:    { startup: 2,  active: 6, recovery: 6,  hitFrame: -1, damage: 0,  cost: 4  },   // 25% of old 14
-      counter:  { startup: 2,  active: 8, recovery: 16, hitFrame: -1, damage: 0,  cost: 18 },
-      hit:      { startup: 0,  active: 0, recovery: 8,  hitFrame: -1, damage: 0,  cost: 0  },
+      // Tap chain — fast, safe, comboable.
+      jab:      { startup: 4, active: 2, recovery: 8,  hitFrame: 5,
+                  damage: 7,  cost: 0,
+                  hitStun: 16, blockStun: 10, pushback: 0.30 },
+      cross:    { startup: 6, active: 3, recovery: 14, hitFrame: 7,
+                  damage: 13, cost: 0,
+                  hitStun: 20, blockStun: 14, pushback: 0.50 },
+
+      // Heavy attacks — standalone or chain enders.
+      hook:     { startup: 8, active: 3, recovery: 18, hitFrame: 9,
+                  damage: 16, cost: 0,
+                  hitStun: 22, blockStun: 16, pushback: 0.70 },
+
+      // Reversal — invulnerable startup, very unsafe on block.
+      uppercut: { startup: 6, active: 4, recovery: 30, hitFrame: 7,
+                  damage: 20, cost: 0,
+                  hitStun: 36, blockStun: 14, pushback: 1.00,
+                  invuln: [1, 6] },
+
+      // Projectiles & misc.
+      shoot:    { startup: 4,  active: 0, recovery: 8,  hitFrame: 4,
+                  damage: 8,  cost: 0 },
+      super:    { startup: 12, active: 4, recovery: 16, hitFrame: 14,
+                  damage: 22, cost: 0,
+                  hitStun: 28, blockStun: 16, pushback: 0.80 },
+
+      // Movement — no hitbox.
+      dash:     { startup: 2, active: 10, recovery: 4, hitFrame: -1,
+                  damage: 0, cost: 0 },
+      dodge:    { startup: 2, active: 8,  recovery: 6, hitFrame: -1,
+                  damage: 0, cost: 0,
+                  invuln: [3, 10] },          // active-phase invuln + side-switch
+
+      // Reaction states.
+      counter:  { startup: 2, active: 8,  recovery: 16, hitFrame: -1,
+                  damage: 0, cost: 0 },
+      hit:      { startup: 0, active: 0,  recovery: 16, hitFrame: -1,
+                  damage: 0, cost: 0 },        // duration is data-driven via stun frames
     },
 
-    invulnDuration: 0.30,        // i-frames after taking damage
-    counterWindow:  8 / 60,      // 8 frames to parry an incoming punch
+    // ---- Combo scaling ----
+    // Multiplier applied to damage based on hit count of an ongoing combo.
+    // Hit 1 = 100%, hit 2 = 80%, etc.  Past index 4, the cap (0.50) holds.
+    comboScaling: [1.00, 0.80, 0.65, 0.55, 0.50],
+
+    // ---- Hit-stop ----
+    // Brief screen freeze when an attack connects.  Both attacker and
+    // victim freeze for these frames.  Visual punch only.
+    hitStopFrames:       4,
+    hitStopFramesHeavy:  6,    // hook / uppercut / super
+
+    // ---- Corner ----
+    // When a fighter is at the lane wall, pushback that would push them
+    // further out is instead redirected back into the attacker.
+    cornerEpsilon: 0.05,        // distance-from-wall threshold
+
+    invulnDuration: 0.30,        // i-frames after taking damage (legacy)
+    counterWindow:  8 / 60,      // 8 frames to parry an incoming punch (legacy)
     counterStunDuration: 0.6,
-    activeInvuln: ['dodge'],     // these actions are invulnerable during their active phase
+    activeInvuln: ['dodge'],     // legacy — now derived from action.invuln field
 
     startSeparation: 7.0,
     // meshScale and groundLift are now per-character — see AssetLoader.js

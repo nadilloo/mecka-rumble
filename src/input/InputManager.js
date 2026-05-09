@@ -274,6 +274,9 @@ export class InputManager {
         this._emit('HOOK', {});
         this._showLabel('HOOK', true);
       }
+      // Heavy enders break the tap chain — next tap starts fresh.
+      this._tapChainIndex = 0;
+      this._tapChainExpiresAt = 0;
       this.active = null;
       return;
     }

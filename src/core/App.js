@@ -572,6 +572,13 @@ export class App {
       f.lockoutTime = 0;
       f.recentDamageTime = 0;
       f.stunTime = 0;
+      // Reset new fighting-game state.
+      f.hitstunTime = 0;
+      f.blockstunTime = 0;
+      f.hitStopTime = 0;
+      f.comboCount = 0;
+      f.comboResetTimer = 0;
+      f.pushbackVel = 0;
       f.anim.stop();
       f.setShielding(false);
       f.setCrouching(false);

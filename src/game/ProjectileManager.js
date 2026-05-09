@@ -80,10 +80,10 @@ export class ProjectileManager {
           1.2 - p.mesh.position.y
         );
         if (gap < (p.radius + 0.75)) {
-          const dealt = target.takeHit(p.damage, p.mesh.position.x);
-          if (dealt > 0) {
+          const result = target.takeHit(p.damage, p.mesh.position.x, false, p.kind);
+          if (result.dealt > 0) {
             this._burst(p.mesh.position.clone(), p.mesh.material.color);
-            this.onDamageDealt(p.kind, dealt, p.ownerIsPlayer);
+            this.onDamageDealt(p.kind, result.dealt, p.ownerIsPlayer);
           }
           this._kill(p);
         }

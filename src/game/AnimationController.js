@@ -110,7 +110,13 @@ export class AnimationController {
   /** Multiply animation playback rate.  1.0 = normal. */
   setSpeed(s) { this.mixer.timeScale = s; }
 
+  /** Freeze or resume the animation playhead.  Used during hit-stop
+   *  so the impact appears to lock both fighters in place for a
+   *  few frames. */
+  setPaused(p) { this._paused = !!p; }
+
   update(dt /*, facingSign (unused for skeletal) */) {
+    if (this._paused) return;     // hit-stop freeze
     this.mixer.update(dt);
 
     // Auto-return to idle when a one-shot reaches its end.
