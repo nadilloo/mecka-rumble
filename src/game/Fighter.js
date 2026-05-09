@@ -26,6 +26,7 @@ import { clamp, damp, sign } from '../utils/math.js';
 import { AnimationController } from './AnimationController.js';
 
 const C = CONFIG.fighter;
+const STAGE = CONFIG.stage;
 const B = CONFIG.battery;
 const D = CONFIG.damage;
 const ACT = C.actions;
@@ -628,10 +629,10 @@ export class Fighter {
       // Clamp to lane.
       this.root.position.x = clamp(
         this.root.position.x,
-        -C.laneHalfWidth, C.laneHalfWidth
+        -STAGE.laneHalfWidth, STAGE.laneHalfWidth
       );
       // If we hit the wall, kill the velocity so we don't pile up.
-      if (Math.abs(this.root.position.x) >= C.laneHalfWidth - 0.001) {
+      if (Math.abs(this.root.position.x) >= STAGE.laneHalfWidth - 0.001) {
         this.pushbackVel = 0;
       }
     } else {
@@ -676,7 +677,7 @@ export class Fighter {
             const pushback = ad.pushback ?? 0;
             if (pushback > 0) {
               const myDir = sign(this.root.position.x - oppX) || this.facing;
-              const wallEdge = C.laneHalfWidth - C.cornerEpsilon;
+              const wallEdge = STAGE.laneHalfWidth - C.cornerEpsilon;
               const defAtCorner = Math.abs(opponent.root.position.x) >= wallEdge;
               // If defender is cornered, double the attacker's
               // pushback (their share + the share that would've gone
