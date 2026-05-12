@@ -518,12 +518,15 @@ export class Fighter {
     }
 
     // Apply pushback on the victim.  Direction = away from attacker.
+    // On hit, full pushback applies.  On block, the block absorbs
+    // some of the momentum so the defender slides less (0.70×).
+    // The wall clamp in update() handles the cornered case — a
+    // cornered defender simply doesn't move regardless.
     const pushback = ad.pushback ?? 0;
     if (pushback > 0) {
       const dirX = sign(this.root.position.x - fromX) || -this.facing;
-      this.pushbackVel += dirX * pushback * 12;   // *12 turns "world units"
-                                                   // into a velocity that
-                                                   // damps to ~that distance.
+      const defenderPushback = blocked ? pushback * 0.70 : pushback;
+      this.pushbackVel += dirX * defenderPushback * 12;
     }
 
     // Hit-stop: brief mutual freeze.  Heavy attacks freeze longer.
@@ -639,6 +642,20 @@ export class Fighter {
       this.pushbackVel = 0;
     }
 
+    // Defensive NaN guard.  Chrome Mobile's WebGL is stricter about
+    // non-finite values in transform matrices than other browsers —
+    // a single NaN can blank the entire canvas.  We self-heal here
+    // by resetting any non-finite state to safe values so the bug
+    // cannot persist across frames.
+    if (!Number.isFinite(this.root.position.x) ||
+        !Number.isFinite(this.pushbackVel)) {
+      console.warn('[Fighter] non-finite state detected, recovering',
+        { x: this.root.position.x, v: this.pushbackVel });
+      this.root.position.x = clamp(this._moveTarget || 0,
+        -STAGE.laneHalfWidth, STAGE.laneHalfWidth);
+      this.pushbackVel = 0;
+    }
+
     // Action progression.
     if (this.action) {
       // Spend cost on first frame of startup if not already.
@@ -679,11 +696,18 @@ export class Fighter {
               const myDir = sign(this.root.position.x - oppX) || this.facing;
               const wallEdge = STAGE.laneHalfWidth - C.cornerEpsilon;
               const defAtCorner = Math.abs(opponent.root.position.x) >= wallEdge;
-              // If defender is cornered, double the attacker's
-              // pushback (their share + the share that would've gone
-              // into the wall).  Otherwise apply the normal small
-              // amount of attacker separation.
-              const attackerPushback = defAtCorner ? pushback * 2.0 : pushback * 0.4;
+              // Pushback amount depends on hit vs block AND whether
+              // the defender is cornered.  Four cases:
+              //   HIT uncornered   = 0.20×  (low recoil — extend combo)
+              //   HIT cornered     = 2.00×  (anti-corner shove)
+              //   BLOCK uncornered = 0.80×  (mutual separation)
+              //   BLOCK cornered   = 2.40×  (cornered block = breathing room)
+              let attackerPushback;
+              if (result.blocked) {
+                attackerPushback = defAtCorner ? pushback * 2.40 : pushback * 0.80;
+              } else {
+                attackerPushback = defAtCorner ? pushback * 2.00 : pushback * 0.20;
+              }
               this.pushbackVel += myDir * attackerPushback * 12;
             }
           }

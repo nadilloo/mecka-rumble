@@ -28,8 +28,19 @@ export class FightCamera {
   }
 
   update(dt, player, cpu) {
-    const midX = (player.root.position.x + cpu.root.position.x) * 0.5 + C.sidePan;
-    const gap  = Math.abs(player.root.position.x - cpu.root.position.x);
+    // Defensive NaN guard.  Chrome Mobile WebGL rejects draw calls
+    // with non-finite transform matrices and won't recover until
+    // page reload.  Skip this frame if inputs are bad so the
+    // camera's quaternion is never poisoned via slerp.
+    const px = player.root.position.x;
+    const cx = cpu.root.position.x;
+    if (!Number.isFinite(px) || !Number.isFinite(cx)) {
+      console.warn('[FightCamera] non-finite fighter position, skipping frame');
+      return;
+    }
+
+    const midX = (px + cx) * 0.5 + C.sidePan;
+    const gap  = Math.abs(px - cx);
 
     // Bigger arena + range: remap gap 0..16 → [min, max] distance, so
     // max zoom-out is only reached when the fighters are near the walls.
@@ -58,5 +69,18 @@ export class FightCamera {
 
     // Never drop below floor.
     this.camera.position.y = Math.max(0.3, this.camera.position.y);
+
+    // Final self-heal: if the camera state is somehow non-finite at
+    // this point (e.g. a slerp produced NaN earlier), reset to a safe
+    // default rather than ship a corrupt matrix to WebGL.
+    const cp = this.camera.position, cq = this.camera.quaternion;
+    if (!Number.isFinite(cp.x) || !Number.isFinite(cp.y) || !Number.isFinite(cp.z) ||
+        !Number.isFinite(cq.x) || !Number.isFinite(cq.y) ||
+        !Number.isFinite(cq.z) || !Number.isFinite(cq.w)) {
+      console.warn('[FightCamera] non-finite camera state, resetting');
+      this.camera.position.set(0, C.heightEye, C.zBase);
+      this.camera.quaternion.identity();
+      this.camera.lookAt(0, C.heightLook, 0);
+    }
   }
 }

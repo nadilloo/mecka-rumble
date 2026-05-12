@@ -62,29 +62,29 @@ export const CONFIG = {
     actions: {
       // Tap chain — fast, safe, comboable.
       jab:      { startup: 4, active: 2, recovery: 8,  hitFrame: 5,
-                  damage: 7,  cost: 0,
-                  hitStun: 16, blockStun: 10, pushback: 0.30 },
+                  damage: 3.5, cost: 0,
+                  hitStun: 16, blockStun: 10, pushback: 0.60 },
       cross:    { startup: 6, active: 3, recovery: 14, hitFrame: 7,
-                  damage: 13, cost: 0,
-                  hitStun: 20, blockStun: 14, pushback: 0.50 },
+                  damage: 6.5, cost: 0,
+                  hitStun: 20, blockStun: 14, pushback: 1.00 },
 
       // Heavy attacks — standalone or chain enders.
       hook:     { startup: 8, active: 3, recovery: 18, hitFrame: 9,
-                  damage: 16, cost: 0,
-                  hitStun: 22, blockStun: 16, pushback: 0.70 },
+                  damage: 8, cost: 0,
+                  hitStun: 22, blockStun: 16, pushback: 1.40 },
 
       // Reversal — invulnerable startup, very unsafe on block.
       uppercut: { startup: 6, active: 4, recovery: 30, hitFrame: 7,
-                  damage: 20, cost: 0,
-                  hitStun: 36, blockStun: 14, pushback: 1.00,
+                  damage: 10, cost: 0,
+                  hitStun: 36, blockStun: 14, pushback: 2.00,
                   invuln: [1, 6] },
 
       // Projectiles & misc.
       shoot:    { startup: 4,  active: 0, recovery: 8,  hitFrame: 4,
-                  damage: 8,  cost: 0 },
+                  damage: 4,  cost: 0 },
       super:    { startup: 12, active: 4, recovery: 16, hitFrame: 14,
-                  damage: 22, cost: 0,
-                  hitStun: 28, blockStun: 16, pushback: 0.80 },
+                  damage: 11, cost: 0,
+                  hitStun: 28, blockStun: 16, pushback: 1.60 },
 
       // Movement — no hitbox.
       dash:     { startup: 2, active: 10, recovery: 4, hitFrame: -1,
