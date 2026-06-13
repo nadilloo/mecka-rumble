@@ -98,6 +98,8 @@ export class CharSelectPreview {
     root.position.y = pack.groundLift * 0.67;
 
     // Apply the character's albedo + (optional) normal map.
+    // Procedural packs author their own materials — leave them alone.
+    if (!pack.procedural) {
     const t = pack.textures;
     // For the preview we always show the player-side albedo
     // (Jammo gets red, Knight gets its single shared albedo).
@@ -123,6 +125,7 @@ export class CharSelectPreview {
         obj.material = new THREE.MeshStandardMaterial(matOpts);
       }
     });
+    }
 
     root.add(cloned);
     this.scene.add(root);

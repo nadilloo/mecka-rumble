@@ -17,6 +17,7 @@
    ============================================================ */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { buildMeckaKnightScene } from './MeckaKnightProcedural.js';
 
 const BASE = './assets';
 
@@ -70,6 +71,15 @@ const CHARACTERS = {
     groundLift: 0.0,        // recomputed via autoFit (pivot-aware)
     autoFit: true,
   },
+  mecka: {
+    // Procedural character — no GLB, no textures.  Built in code by
+    // MeckaKnightProcedural.js on top of Jammo's exact skeleton, so
+    // it shares Jammo's meshScale / groundLift and needs no autoFit.
+    procedural: true,
+    meshScale: 2.0,
+    groundLift: 0.85,
+    autoFit: false,
+  },
 };
 
 export async function loadAllAssets() {
@@ -83,10 +93,12 @@ export async function loadAllAssets() {
     texLoader.load(url, res, undefined, rej)
   );
 
-  // Build flat lists for parallel loading.
+  // Build flat lists for parallel loading.  Procedural packs have
+  // no GLB or textures to fetch — they're built in code below.
   const meshUrls = [];
   const texEntries = [];   // { charId, key, url }
   for (const [charId, pack] of Object.entries(CHARACTERS)) {
+    if (pack.procedural) continue;
     meshUrls.push({ charId, url: `${BASE}/${pack.mesh}` });
     for (const [key, file] of Object.entries(pack.textures)) {
       texEntries.push({ charId, key, url: `${BASE}/textures/${file}` });
@@ -117,6 +129,17 @@ export async function loadAllAssets() {
       textures: {},
     };
   });
+  // Procedural packs: build the scene graph in code.
+  for (const [charId, pack] of Object.entries(CHARACTERS)) {
+    if (!pack.procedural) continue;
+    characters[charId] = {
+      baseScene: buildMeckaKnightScene(),
+      meshScale: pack.meshScale,
+      groundLift: pack.groundLift,
+      textures: {},
+      procedural: true,
+    };
+  }
   texs.forEach((t, i) => {
     const { charId, key } = texEntries[i];
     characters[charId].textures[key] = t;

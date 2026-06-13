@@ -305,7 +305,7 @@ export class UIManager {
   getCharacterSelection() { return this._charSelection; }
 
   setCharacterSelection(charId) {
-    if (charId !== 'jammo' && charId !== 'knight') return;
+    if (!['jammo','knight','mecka'].includes(charId)) return;
     this._charSelection = charId;
     this._renderCharSelection();
     this._saveCharSelectionToStorage();
@@ -321,7 +321,7 @@ export class UIManager {
   _loadCharSelectionFromStorage() {
     try {
       const raw = localStorage.getItem('mecka.character.v1');
-      if (raw === 'jammo' || raw === 'knight') return raw;
+      if (['jammo','knight','mecka'].includes(raw)) return raw;
     } catch (e) { /* ignore */ }
     return 'jammo';
   }

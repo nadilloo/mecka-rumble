@@ -134,6 +134,28 @@ export class Fighter {
     cloned.scale.setScalar(pack.meshScale);
     if (!this.isPlayer) cloned.scale.x *= -1;   // mirror CPU stance
 
+    if (pack.procedural) {
+      // Procedural characters author their own materials — never
+      // override them with albedo textures.  For the CPU we clone
+      // the tintable armor materials and shift them to a dark red
+      // so player (navy) vs CPU (crimson) read instantly.
+      if (!this.isPlayer) {
+        const tintCache = new Map();
+        cloned.traverse((obj) => {
+          if (!obj.isMesh || !obj.material?.userData?.tintRole) return;
+          let tinted = tintCache.get(obj.material);
+          if (!tinted) {
+            tinted = obj.material.clone();
+            tinted.color.set(
+              obj.material.userData.tintRole === 'armor' ? 0x4a232c : 0x36161d);
+            tintCache.set(obj.material, tinted);
+          }
+          obj.material = tinted;
+        });
+      }
+      root.add(cloned);
+      this._animRoot = cloned;
+    } else {
     // Pick the right albedo for this fighter.  Jammo has separate
     // red/blue textures keyed off isPlayer; Knight has just one
     // shared "knight" albedo (its color identity comes from being a
@@ -168,9 +190,11 @@ export class Fighter {
 
     root.add(cloned);
     this._animRoot = cloned;
+    }
 
-    // Attach part overlays (head, arms, torso, legs).
-    this._attachOverlays(cloned);
+    // Attach part overlays (head, arms, torso, legs).  Jammo only —
+    // the workshop parts catalog is shaped around Jammo's body.
+    if (!pack.procedural) this._attachOverlays(cloned);
 
     // Ground shadow.
     const shadow = new THREE.Mesh(
