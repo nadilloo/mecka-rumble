@@ -21,8 +21,11 @@ export const CONFIG = {
   // e.g. common 'scrap', uncommon 'blue'/'red', rare 'spartan',
   // epic 'shogun').  Only the listed sets are built per fighter.
   mecka: {
-    playerSet: 'blue',   // SENTINEL
-    cpuSet:    'red',    // MAGMA
+    // Player wears a per-slot loadout, authored in the Mecka Hangar and
+    // persisted to localStorage.  These are the first-run defaults.
+    playerLoadout: { helmet: 'blue', torso: 'blue', armR: 'blue', armL: 'blue', legs: 'blue' },
+    playerEye: { hex: '#8ee9ff', level: 2 },   // null = each set's branded eyes
+    cpuSet: 'red',       // MAGMA — CPU still wears one uniform set
   },
 
   stage: {

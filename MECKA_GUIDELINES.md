@@ -44,8 +44,14 @@ NIGHTHAWK · EPIC: SHOGUN, VOID. Keys in code stay lowercase legacy
 
 ## Rarity dots (UI)
 
-COMMON `#3fbf5a` green · UNCOMMON `#3b82f6` blue · RARE `#eab308` yellow ·
-EPIC `#a855f7` purple. Shown beside every set name in the viewer.
+COMMON `#9aa4b2` gray · UNCOMMON `#3fbf5a` green · RARE `#3b82f6` blue ·
+EPIC `#a855f7` purple. Shown beside every set name in the viewer and on every
+card + anchor node in the Hangar.
+
+**Changed 2026-07-12** (was green/blue/yellow/purple). COMMON now reads drab and
+GREEN means uncommon, matching the convention players already know. Defined once,
+in `TIER_COLORS` (MeckaKnightProcedural.js); the viewer and `HangarCatalog.RARITY`
+both read it, and a harness assertion fails if they drift apart.
 
 ## Production loop (every batch)
 

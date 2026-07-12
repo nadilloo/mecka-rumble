@@ -1,0 +1,316 @@
+/* ============================================================
+ * hangar.css — the Mecka Hangar.
+ * Scoped entirely under #hangar-screen; nothing here leaks into the game HUD.
+ * ============================================================ */
+
+#hangar-screen {
+  --void:      #050b18;
+  --deep:      #0b1630;
+  --panel:     #13264f;
+  --panel-hi:  #1b3670;
+  --bevel:     #3567b4;
+  --hair:      #1d3d78;
+  --cyan:      #46d8ff;
+  --cyan-lo:   #1c86c4;
+  --amber:     #ff8a1f;
+  --amber-hi:  #ffb44d;
+  --ink:       #e6f0ff;
+  --ink-dim:   #7f95b8;
+
+  --stage-split: 40%;          /* flip this one number to retune the split */
+
+  /* NOTE: .screen already supplies position/inset/display/flex-direction and
+     toggles visibility via .show — an #id rule here would out-specify that
+     and pin the Hangar permanently on top of the menu.  Style only. */
+  background: var(--void);
+  color: var(--ink);
+  font-family: 'Chakra Petch', system-ui, sans-serif;
+  overflow: hidden;
+  -webkit-user-select: none; user-select: none;
+}
+
+/* ============ STAGE (top 40%) ============ */
+.hangar-stage {
+  position: relative;
+  flex: 0 0 var(--stage-split);
+  min-height: 0;
+  overflow: hidden;
+  background: radial-gradient(120% 80% at 50% 40%, #16305e 0%, #0a1730 60%, #060d1c 100%);
+}
+#hangar-canvas { display: block; width: 100%; height: 100%; }
+
+/* Hangar strip-lighting, painted rather than modelled — cheaper than geometry
+   and it sells the room without another 200 draw calls. */
+.hangar-stage::before,
+.hangar-stage::after {
+  content: ''; position: absolute; top: 8%; bottom: 30%; width: 10px;
+  background: repeating-linear-gradient(180deg,
+    var(--amber) 0 14px, transparent 14px 46px);
+  opacity: .30; filter: blur(1px); pointer-events: none;
+}
+.hangar-stage::before { left: 3%; }
+.hangar-stage::after  { right: 3%; }
+
+#hangar-lines {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; overflow: visible;
+}
+.hangar-leader {
+  fill: none; stroke: var(--cyan); stroke-width: 1.25;
+  opacity: .55; stroke-linejoin: round;
+}
+.hangar-joint { fill: var(--cyan); opacity: .9; }
+
+#hangar-nodes { position: absolute; inset: 0; pointer-events: none; }
+
+.hangar-node {
+  --r: #9aa4b2;
+  position: absolute; transform: translate(-50%, -50%);
+  width: 46px; height: 46px; border-radius: 50%;   /* fat mobile hitbox */
+  pointer-events: auto; cursor: pointer;
+  display: grid; place-items: center;
+  border: 2px solid var(--cyan);
+  background: radial-gradient(circle at 50% 35%, #2f7fd8, #0d2952 70%);
+  box-shadow: 0 0 10px rgba(70,216,255,.5), inset 0 0 8px rgba(70,216,255,.35);
+  padding: 0;
+  transition: transform .14s ease, box-shadow .14s ease;
+}
+.hangar-node svg { width: 22px; height: 22px; fill: #dff2ff; }
+.hangar-node::after {                                  /* rarity pip */
+  content: ''; position: absolute; right: -1px; bottom: -1px;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--r); border: 2px solid var(--deep);
+}
+.hangar-node .node-label {
+  position: absolute; top: calc(100% + 3px); left: 50%;
+  transform: translateX(-50%);
+  font: 600 8px/1 'Share Tech Mono', monospace; letter-spacing: .09em;
+  color: var(--ink-dim); white-space: nowrap;
+}
+.hangar-node.active {
+  transform: translate(-50%, -50%) scale(1.14);
+  box-shadow: 0 0 18px var(--cyan), inset 0 0 10px rgba(70,216,255,.6);
+}
+.hangar-node.active .node-label { color: var(--cyan); }
+.hangar-node:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+/* Rarity confirm flash — a vignette pulse in the part's tier colour. */
+#hangar-flash {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: radial-gradient(120% 90% at 50% 50%,
+    transparent 35%, color-mix(in srgb, var(--flash, #fff) 65%, transparent) 100%);
+}
+#hangar-flash.fire { animation: hangar-flash .62s ease-out; }
+@keyframes hangar-flash {
+  0%   { opacity: 0; }
+  22%  { opacity: .85; }
+  100% { opacity: 0; }
+}
+
+.hangar-hud {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; pointer-events: none;
+  font: 700 14px/1 'Chakra Petch', sans-serif; letter-spacing: .06em;
+  text-shadow: 0 2px 6px #000;
+}
+.hangar-hud .creds {
+  font-family: 'Share Tech Mono', monospace; font-size: 13px;
+  color: var(--amber-hi); display: flex; gap: 4px; align-items: center;
+}
+.hangar-hud .creds b { color: var(--ink); font-weight: 400; }
+
+/* ============ DATAPAD (bottom 60%) ============ */
+.hangar-pad {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 8px 8px 10px;
+  background:
+    linear-gradient(180deg, #0f1d3c 0%, #091428 100%);
+  border-top: 2px solid var(--bevel);
+  box-shadow: inset 0 2px 0 rgba(120,180,255,.18);
+}
+
+.pad-cols { display: flex; gap: 7px; flex: 1 1 auto; min-height: 0; }
+.pad-left  { flex: 0 0 41%; display: flex; flex-direction: column; gap: 7px; min-height: 0; }
+.pad-right { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+
+.panel {
+  background: linear-gradient(180deg, var(--panel-hi), var(--panel));
+  border: 1px solid var(--bevel);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(150,200,255,.25), 0 2px 6px rgba(0,0,0,.45);
+}
+
+/* ---- stats ---- */
+#hangar-stats { padding: 8px; display: flex; flex-direction: column; gap: 9px; }
+.stat-row { display: flex; flex-direction: column; gap: 4px; }
+.stat-head { display: flex; align-items: center; gap: 5px; }
+.stat-icon {
+  width: 13px; height: 13px; flex: none; border-radius: 2px;
+  background: var(--c); box-shadow: 0 0 6px var(--c);
+}
+.stat-label {
+  font: 700 11px/1 'Chakra Petch', sans-serif; letter-spacing: .09em;
+  color: var(--ink);
+}
+.stat-value {
+  margin-left: auto;
+  font: 700 17px/1 'Chakra Petch', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.stat-delta {
+  font: 700 11px/1 'Share Tech Mono', monospace; min-width: 26px; text-align: right;
+}
+.stat-delta.up   { color: #7dff9c; }
+.stat-delta.down { color: #ff4d5a; }
+
+.stat-track {
+  position: relative; height: 9px; border-radius: 2px;
+  background: #06101f; border: 1px solid #0d2246;
+  overflow: hidden;
+}
+.stat-fill {
+  position: absolute; inset: 0 auto 0 0; height: 100%;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--c) 55%, #000), var(--c));
+  box-shadow: 0 0 8px var(--c);
+  transition: width .22s cubic-bezier(.2,.7,.3,1);
+}
+.stat-ghost {
+  position: absolute; top: 0; bottom: 0; width: 0;
+  background: var(--g); opacity: 0;
+  transition: width .22s cubic-bezier(.2,.7,.3,1), left .22s cubic-bezier(.2,.7,.3,1);
+}
+.stat-ghost.on { opacity: 1; animation: ghost-pulse .8s ease-in-out infinite; }
+@keyframes ghost-pulse { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+
+/* ---- eyes ---- */
+#hangar-eyes { padding: 7px 8px 8px; }
+.eye-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font: 700 10px/1 'Chakra Petch', sans-serif; letter-spacing: .12em;
+  color: var(--ink-dim); margin-bottom: 6px;
+}
+.eye-brand {
+  font: 600 9px/1 'Share Tech Mono', monospace; letter-spacing: .05em;
+  padding: 3px 6px; border-radius: 3px; cursor: pointer;
+  background: #0a1a36; color: var(--ink-dim); border: 1px solid var(--hair);
+}
+.eye-brand.on { color: var(--cyan); border-color: var(--cyan); }
+.eye-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.eye-sw {
+  --e: #fff;
+  aspect-ratio: 1; min-height: 26px; border-radius: 5px; cursor: pointer; padding: 0;
+  background: radial-gradient(circle at 50% 38%, #fff 0%, var(--e) 42%,
+              color-mix(in srgb, var(--e) 45%, #000) 100%);
+  border: 1px solid #08152b;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--e) 60%, transparent);
+}
+.eye-sw.on { border: 2px solid #fff; box-shadow: 0 0 12px var(--e); }
+.eye-foot {
+  display: flex; align-items: center; justify-content: space-between; margin-top: 6px;
+}
+.eye-more {
+  font: 600 9px/1 'Share Tech Mono', monospace; padding: 3px 6px; cursor: pointer;
+  background: #0a1a36; color: var(--cyan); border: 1px solid var(--hair); border-radius: 3px;
+}
+.eye-pips { display: flex; gap: 3px; }
+.eye-pip {
+  width: 13px; height: 13px; border-radius: 50%; cursor: pointer; padding: 0;
+  background: #0a1a36; border: 1px solid var(--hair);
+}
+.eye-pip.on { background: var(--cyan); box-shadow: 0 0 7px var(--cyan); border-color: var(--cyan); }
+
+/* ---- tabs + inventory ---- */
+#hangar-tabs { display: flex; gap: 5px; margin-bottom: 6px; }
+#hangar-tabs button {
+  flex: 1; padding: 7px 4px; cursor: pointer; border-radius: 5px 5px 0 0;
+  font: 700 11px/1 'Chakra Petch', sans-serif; letter-spacing: .07em;
+  color: var(--ink-dim); background: #0c1a36;
+  border: 1px solid var(--hair); border-bottom: none;
+}
+#hangar-tabs button.on {
+  color: #fff; background: linear-gradient(180deg, #2f6fd0, #1b3f8a);
+  border-color: var(--bevel); box-shadow: 0 0 10px rgba(70,216,255,.35);
+}
+
+#hangar-grid {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+  padding: 7px; border-radius: 6px;
+  background-color: #07122a;
+  border: 1px solid var(--hair);
+}
+
+.part-card {
+  --r: #9aa4b2;
+  position: relative; cursor: pointer; padding: 5px 3px 4px;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #16305e, #0d1e40);
+  border: 1.5px solid color-mix(in srgb, var(--r) 55%, #0b1a35);
+  box-shadow: inset 0 0 12px color-mix(in srgb, var(--r) 22%, transparent);
+}
+.card-art {
+  width: 100%; aspect-ratio: 1.25; display: grid; place-items: center;
+  border-radius: 3px; background: radial-gradient(circle at 50% 40%,
+    color-mix(in srgb, var(--r) 30%, #0a1a38), #071630 80%, #06101f 100%);
+}
+.card-art svg { width: 62%; height: 62%; fill: color-mix(in srgb, var(--r) 70%, #dfeaff); }
+.card-name {
+  font: 700 9px/1.1 'Chakra Petch', sans-serif; letter-spacing: .04em;
+  color: var(--ink); text-align: center; word-break: break-word;
+}
+.card-tier {
+  width: 60%; height: 3px; border-radius: 2px;
+  background: var(--r); box-shadow: 0 0 6px var(--r);
+}
+.card-flag {
+  position: absolute; top: 3px; left: 3px;
+  font: 700 7px/1 'Share Tech Mono', monospace; letter-spacing: .04em;
+  padding: 2px 3px; border-radius: 2px;
+  background: rgba(6,16,32,.85); color: var(--cyan); border: 1px solid var(--cyan-lo);
+}
+.part-card.equipped { border-color: var(--cyan); }
+.part-card.previewing {
+  border-color: #fff;
+  box-shadow: 0 0 14px var(--r), inset 0 0 14px color-mix(in srgb, var(--r) 40%, transparent);
+  animation: card-pulse .9s ease-in-out infinite;
+}
+@keyframes card-pulse { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+#hangar-blurb {
+  font: 400 10px/1.25 'Share Tech Mono', monospace;
+  color: var(--ink-dim); text-align: center; min-height: 13px;
+  padding: 0 4px;
+}
+
+/* ---- actions ---- */
+.hangar-actions { display: flex; gap: 6px; align-items: stretch; }
+.hangar-actions button {
+  cursor: pointer; border-radius: 6px; padding: 11px 6px;
+  font: 700 12px/1 'Chakra Petch', sans-serif; letter-spacing: .06em; color: #fff;
+  border: 1px solid var(--bevel);
+  background-image: linear-gradient(180deg, #2f6fd0, #17418f);
+  box-shadow: inset 0 1px 0 rgba(180,220,255,.4), 0 2px 5px rgba(0,0,0,.5);
+}
+#hangar-back    { flex: 0 0 24%; }
+#hangar-fullset { flex: 0 0 30%; font-size: 10px; }
+#hangar-confirm {
+  flex: 1 1 auto;
+  background-image: linear-gradient(180deg, var(--amber-hi), #e0700f);
+  border-color: #ffc978;
+  box-shadow: inset 0 1px 0 rgba(255,230,190,.6), 0 0 14px rgba(255,138,31,.5);
+}
+#hangar-confirm:disabled {
+  background-image: linear-gradient(180deg, #33507f, #1d3560);
+  border-color: #2c4a80; color: var(--ink-dim); box-shadow: none; cursor: default;
+}
+.hangar-actions button:active:not(:disabled) { transform: translateY(1px); filter: brightness(1.12); }
+.hangar-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-ghost.on, .part-card.previewing, #hangar-flash.fire { animation: none; }
+}

@@ -52,30 +52,9 @@ const ANIMATIONS = [
 const TARGET_WORLD_HEIGHT = 1.8;   // approximate Jammo height in world units after meshScale=2.0
 
 const CHARACTERS = {
-  jammo: {
-    mesh: 'jammo.glb',
-    textures: {
-      albedoRed:  'red_jammo_albedo_alpha.png',
-      albedoBlue: 'blue_jammo_albedo_alpha.png',
-      normal:     'jammo_normal.png',
-    },
-    meshScale: 2.0,
-    groundLift: 0.85,
-    autoFit: false,         // Jammo is hand-tuned, leave it alone
-  },
-  knight: {
-    mesh: 'knight.glb',
-    textures: {
-      albedo: 'knight_albedo.png',
-    },
-    meshScale: 1.0,         // placeholder; recomputed via autoFit
-    groundLift: 0.0,        // recomputed via autoFit (pivot-aware)
-    autoFit: true,
-  },
+  // Jammo and Knight were retired 2026-07-12.  There is one playable
+  // character now — the MECKA — and it is customised in the Hangar.
   mecka: {
-    // Procedural character — no GLB, no textures.  Built in code by
-    // MeckaKnightProcedural.js on top of Jammo's exact skeleton, so
-    // it shares Jammo's meshScale / groundLift and needs no autoFit.
     procedural: true,
     meshScale: 2.0,
     groundLift: 0.85,
@@ -136,8 +115,9 @@ export async function loadAllAssets() {
     // Preview scene: build ONLY the player's set.  Building all 32 sets
     // creates ~3,150 meshes (~170 visible) and Three.js still walks every
     // node in updateMatrixWorld each frame — far too heavy for mobile.
-    const previewSet = CONFIG.mecka.playerSet;
-    const baseScene = buildMeckaKnightScene({ sets: [previewSet], equip: previewSet });
+    const lo = CONFIG.mecka.playerLoadout;
+    const previewSets = [...new Set(Object.values(lo))];   // 1–5 sets, not 32
+    const baseScene = buildMeckaKnightScene({ sets: previewSets, equip: lo });
     // Restore each set's branded eye/visor colours (the model defaults to
     // the viewer's white eye pick; in-game we want SPARTAN gold, MAGMA
     // ember, VOID magenta, etc).
@@ -219,7 +199,7 @@ export async function loadAllAssets() {
   }
 
   return {
-    characters,        // { jammo: {...}, knight: {...} }
+    characters,        // { mecka: {...} }
     clips,             // shared animation clips, keyed by action name
   };
 }

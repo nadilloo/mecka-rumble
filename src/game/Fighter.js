@@ -39,7 +39,7 @@ export class Fighter {
   constructor(opts) {
     this.isPlayer       = !!opts.isPlayer;
     this.side           = opts.side || (opts.isPlayer ? -1 : 1);
-    this.character      = opts.character || 'jammo';
+    this.character      = opts.character || 'mecka';
     this.onShoot        = opts.onShoot || (() => {});
     this.onDamageDealt  = opts.onDamageDealt || (() => {});
 
@@ -89,7 +89,7 @@ export class Fighter {
 
     // Pick the requested character pack from the asset manifest.
     const pack = opts.assets.characters[this.character]
-              || opts.assets.characters.jammo;
+              || opts.assets.characters.mecka;
     this._pack = pack;
 
     // Build mesh.
@@ -135,11 +135,17 @@ export class Fighter {
     // loaded scene.  Passing `sets` keeps the build to a single armour set:
     // building all 32 makes ~3,150 meshes (~170 visible) and Three.js walks
     // every node in updateMatrixWorld each frame — far too heavy for mobile.
-    const meckaSet = pack.procedural
-      ? (this.isPlayer ? CONFIG.mecka.playerSet : CONFIG.mecka.cpuSet)
+    // Player wears a mixed per-slot loadout from the Hangar (an object);
+    // the CPU still wears one uniform set (a string -> equipAll).  Either
+    // way we only build the sets that loadout actually names.
+    const meckaEquip = pack.procedural
+      ? (this.isPlayer ? CONFIG.mecka.playerLoadout : CONFIG.mecka.cpuSet)
       : null;
+    const meckaSets = typeof meckaEquip === 'string'
+      ? [meckaEquip]
+      : (meckaEquip ? [...new Set(Object.values(meckaEquip))] : []);
     const cloned = pack.procedural
-      ? pack.build({ sets: [meckaSet], equip: meckaSet })
+      ? pack.build({ sets: meckaSets, equip: meckaEquip })
       : cloneSkinned(pack.baseScene);
     cloned.scale.setScalar(pack.meshScale);
     if (!this.isPlayer) cloned.scale.x *= -1;   // mirror CPU stance
@@ -150,7 +156,10 @@ export class Fighter {
       // they wear DIFFERENT SETS, which replaces the old colour-tint hack
       // (that tint was keyed on userData.tintRole, which only SENTINEL's
       // materials ever carried, and used long-dead v1 palette hexes).
-      cloned.userData.mecka.setEyeColor(null);   // branded per-set eye/visor colours
+      // Player optics come from the Hangar; CPU keeps each set's branded eyes.
+      const eye = this.isPlayer ? CONFIG.mecka.playerEye : null;
+      if (eye) cloned.userData.mecka.setEyeColor(eye.hex, eye.level);
+      else cloned.userData.mecka.setEyeColor(null);
       cloned.traverse((obj) => {
         if (!obj.isMesh && !obj.isSkinnedMesh) return;
         obj.castShadow = true;

@@ -7,7 +7,10 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#0a0a12" />
   <title>Mecka Rumble</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Share+Tech+Mono&display=swap" />
   <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./src/ui/hangar.css" />
 
   <!-- Playroom multiplayer SDK — full bundle includes React -->
   <script src="https://unpkg.com/playroomkit/multiplayer.full.umd.js" crossorigin="anonymous"></script>
@@ -39,63 +42,46 @@
       <div class="menu-sub">— PROTOTYPE —</div>
       <button class="modal-btn primary" data-menu="battle">BATTLE</button>
       <button class="modal-btn primary" data-menu="multiplayer">MULTIPLAYER</button>
-      <button class="modal-btn" data-menu="workshop">MECKA WORKSHOP</button>
+      <button class="modal-btn" data-menu="hangar">MECKA HANGAR</button>
     </div>
   </section>
 
-  <!-- ===== CHARACTER SELECT ===== -->
-  <section id="character-select-screen" class="screen">
-    <header class="workshop-header">
-      <button class="back-btn" data-charselect="back">‹ BACK</button>
-      <div class="workshop-title">CHOOSE YOUR MECKA</div>
-    </header>
+  <!-- ===== MECKA HANGAR ===== -->
+  <section id="hangar-screen" class="screen">
 
-    <div class="charselect-preview">
-      <canvas id="char-select-canvas"></canvas>
+    <div class="hangar-stage">
+      <canvas id="hangar-canvas"></canvas>
+      <svg id="hangar-lines"></svg>
+      <div id="hangar-nodes"></div>
+      <div id="hangar-flash"></div>
+      <div class="hangar-hud">
+        <span>PILOT_RAZOR</span>
+        <span class="creds">&#9670; <b>120K</b> &nbsp; &#10022; <b>850</b></span>
+      </div>
     </div>
 
-    <div class="charselect-picks">
-      <button class="char-pick selected" data-charselect="pick" data-char="jammo">
-        <div class="char-name">JAMMO</div>
-      </button>
-      <button class="char-pick" data-charselect="pick" data-char="knight">
-        <div class="char-name">KNIGHT</div>
-      </button>
-      <button class="char-pick" data-charselect="pick" data-char="mecka">
-        <div class="char-name">MECKA</div>
-      </button>
+    <div class="hangar-pad">
+      <div class="pad-cols">
+        <div class="pad-left">
+          <div id="hangar-stats" class="panel"></div>
+          <div id="hangar-eyes" class="panel"></div>
+        </div>
+        <div class="pad-right">
+          <div id="hangar-tabs">
+            <button data-mode="components" class="on">COMPONENTS</button>
+            <button data-mode="sets">FULL SETS</button>
+          </div>
+          <div id="hangar-grid"></div>
+        </div>
+      </div>
+      <div id="hangar-blurb"></div>
+      <div class="hangar-actions">
+        <button id="hangar-back">BACK</button>
+        <button id="hangar-confirm" disabled>CONFIRM LOADOUT</button>
+        <button id="hangar-fullset">EQUIP FULL SET</button>
+      </div>
     </div>
 
-    <div class="charselect-footer">
-      <button class="modal-btn primary" data-charselect="fight">FIGHT</button>
-    </div>
-  </section>
-
-  <!-- ===== WORKSHOP ===== -->
-  <section id="workshop-screen" class="screen">
-    <header class="workshop-header">
-      <button class="back-btn" data-workshop="back">‹ BACK</button>
-      <div class="workshop-title">MECKA WORKSHOP</div>
-    </header>
-
-    <div class="workshop-preview">
-      <canvas id="workshop-canvas"></canvas>
-    </div>
-
-    <div class="workshop-stats">
-      <div class="stat"><div class="stat-label">POWER</div><div class="stat-bar"><div class="stat-fill power" id="stat-power"></div></div></div>
-      <div class="stat"><div class="stat-label">ARMOR</div><div class="stat-bar"><div class="stat-fill armor" id="stat-armor"></div></div></div>
-      <div class="stat"><div class="stat-label">SPEED</div><div class="stat-bar"><div class="stat-fill speed" id="stat-speed"></div></div></div>
-    </div>
-
-    <div class="workshop-cats" id="workshop-cats">
-      <!-- 5 categories rendered by JS -->
-    </div>
-
-    <div class="workshop-footer">
-      <button class="modal-btn" data-workshop="reset">RESET</button>
-      <button class="modal-btn primary" data-workshop="save">SAVE & RETURN</button>
-    </div>
   </section>
 
   <!-- ===== BATTLE SCREEN (the existing fight) ===== -->

@@ -240,7 +240,11 @@ function ribbedAlong(vec, f0, f1, rOut, rIn, nRibs, mat) {
 }
 
 /* ============================================================ */
-export const TIER_COLORS = { common: 0x3fbf5a, uncommon: 0x3b82f6, rare: 0xeab308, epic: 0xa855f7 };
+/* Rarity ladder — gray → green → blue → purple (Hangar brief, 2026-07-12).
+   Was green/blue/yellow/purple; changed so COMMON reads as drab and GREEN
+   means uncommon, per the near-universal convention players already know.
+   Single source of truth: the offline viewer and HangarCatalog both read this. */
+export const TIER_COLORS = { common: 0x9aa4b2, uncommon: 0x3fbf5a, rare: 0x3b82f6, epic: 0xa855f7 };
 export const SET_CATALOG = [
   { key: 'scrap', label: 'SCRAP', tier: 'common' },
   { key: 'cadet', label: 'CADET', tier: 'common' },

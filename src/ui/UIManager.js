@@ -66,8 +66,7 @@ export class UIManager {
 
     this._setupOrientation();
     this._wireMenu();
-    this._wireCharacterSelect();
-    this._wireWorkshop();
+    // Hangar owns its own DOM + events (see MeckaHangar.js).
     this._wireModalButtons();
   }
 
@@ -81,7 +80,6 @@ export class UIManager {
 
   /* ---------- Callback hooks ---------- */
   onMenuAction(fn)            { this._menuCb = fn; }
-  onWorkshopAction(fn)        { this._workshopCb = fn; }
   onCharacterSelectAction(fn) { this._charSelectCb = fn; }
   onPauseAction(fn)           { this._pauseCb = fn; }
   onEndAction(fn)             { this._endCb = fn; }
@@ -305,7 +303,7 @@ export class UIManager {
   getCharacterSelection() { return this._charSelection; }
 
   setCharacterSelection(charId) {
-    if (!['jammo','knight','mecka'].includes(charId)) return;
+    if (charId !== 'mecka') return;
     this._charSelection = charId;
     this._renderCharSelection();
     this._saveCharSelectionToStorage();
@@ -321,9 +319,9 @@ export class UIManager {
   _loadCharSelectionFromStorage() {
     try {
       const raw = localStorage.getItem('mecka.character.v1');
-      if (['jammo','knight','mecka'].includes(raw)) return raw;
+      if (raw === 'mecka') return raw;
     } catch (e) { /* ignore */ }
-    return 'jammo';
+    return 'mecka';
   }
 
   _saveCharSelectionToStorage() {

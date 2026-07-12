@@ -22,8 +22,7 @@ import { Fighter } from '../game/Fighter.js';
 import { FighterAI } from '../game/FighterAI.js';
 import { ProjectileManager } from '../game/ProjectileManager.js';
 import { UIManager } from '../ui/UIManager.js';
-import { WorkshopPreview } from '../game/WorkshopPreview.js';
-import { CharSelectPreview } from '../game/CharSelectPreview.js';
+import { MeckaHangar } from '../game/MeckaHangar.js';
 import { PlayroomManager } from '../network/PlayroomManager.js';
 
 export class App {
@@ -53,26 +52,25 @@ export class App {
     this.ui = new UIManager();
     this._wireMenuAndPauseModals();
 
-    // ---- Workshop preview (its own small Three scene). ----
-    const previewCanvas = document.getElementById('workshop-canvas');
-    if (previewCanvas) {
-      this.workshopPreview = new WorkshopPreview(previewCanvas, assets);
-      this.workshopPreview.setLoadout(this.ui.getLoadout());
-      // Update preview live when loadout changes in the workshop.
-      this.ui.onLoadoutChange((lo) => {
-        this.workshopPreview.setLoadout(lo);
+    // ---- Mecka Hangar (its own Three scene + datapad DOM). ----
+    // Replaces both the old Workshop (Jammo-shaped parts catalog) and the
+    // character-select screen: there is one character now, and you dress it.
+    const hangarEl = document.getElementById('hangar-screen');
+    if (hangarEl) {
+      this.hangar = new MeckaHangar(hangarEl);
+      this.hangar.onBack(() => this._enterMenu());
+      // Confirming a part writes straight through to the config the Fighter
+      // reads at build time, so the next fight wears what you just equipped.
+      this.hangar.onChange((loadout, eye) => {
+        CONFIG.mecka.playerLoadout = loadout;
+        CONFIG.mecka.playerEye = eye;
       });
+      CONFIG.mecka.playerLoadout = this.hangar.getLoadout();
+      CONFIG.mecka.playerEye = this.hangar.getEye();
     }
 
-    // ---- Character-select preview (also its own Three scene). ----
-    const charSelectCanvas = document.getElementById('char-select-canvas');
-    if (charSelectCanvas) {
-      this.charSelectPreview = new CharSelectPreview(charSelectCanvas, assets);
-      this.charSelectPreview.setCharacter(this.ui.getCharacterSelection());
-    }
-
-    // Default player character, restored from saved selection.
-    this.playerCharacter = this.ui.getCharacterSelection();
+    // One playable character. Jammo and Knight were retired 2026-07-12.
+    this.playerCharacter = 'mecka';
 
     // Show menu by default.
     this.ui.showScreen('menu');
@@ -144,7 +142,7 @@ export class App {
 
     // Player picks their character at the character-select screen.
     // CPU is always Jammo for the prototype.
-    const playerChar = this.playerCharacter || 'jammo';
+    const playerChar = 'mecka';   // the only character
 
     this.player = new Fighter({
       isPlayer: true, side: -1, assets: this._assets,
@@ -155,7 +153,7 @@ export class App {
     });
     this.cpu = new Fighter({
       isPlayer: false, side: +1, assets: this._assets,
-      character: 'jammo',
+      character: 'mecka',
       startX: +F.startSeparation / 2,
       onShoot: handleShoot, onDamageDealt: this._onDamageDealt,
       loadout: cpuLoadout,
@@ -180,28 +178,12 @@ export class App {
   /* ---------- Menu / workshop / pause / end wiring ---------- */
   _wireMenuAndPauseModals() {
     this.ui.onMenuAction((action) => {
-      if (action === 'battle')        this._enterCharacterSelect();
+      if (action === 'battle')        this._enterBattle();
       else if (action === 'multiplayer') this._enterMultiplayer().catch(e => {
         console.error('[MP] Unhandled error:', e);
         alert('Multiplayer error: ' + e.message);
       });
-      else if (action === 'workshop') this._enterWorkshop();
-    });
-    this.ui.onWorkshopAction((action) => {
-      if (action === 'save' || action === 'back') this._enterMenu();
-    });
-    // Character select: user picks Jammo or Knight, then launches battle.
-    this.ui.onCharacterSelectAction((action, payload) => {
-      if (action === 'pick') {
-        this.ui.setCharacterSelection(payload);
-        this.charSelectPreview?.setCharacter(payload);
-      }
-      else if (action === 'fight') {
-        this.playerCharacter = this.ui.getCharacterSelection();
-        this._enterBattle();
-      } else if (action === 'back') {
-        this._enterMenu();
-      }
+      else if (action === 'hangar')   this._enterHangar();
     });
     this.ui.onPauseClick(() => {
       if (this._ended) return;
@@ -223,17 +205,14 @@ export class App {
 
   _enterMenu() {
     this.ui.showScreen('menu');
-    this.workshopPreview?.stop();
-    this.charSelectPreview?.stop();
+    this.hangar?.stop();
     this._isMultiplayer = false;
   }
-  _enterWorkshop() {
-    this.ui.showScreen('workshop');
-    if (this.workshopPreview) {
-      this.workshopPreview.setLoadout(this.ui.getLoadout());
-      this.workshopPreview.start();
-      requestAnimationFrame(() => this.workshopPreview.resize());
-    }
+  _enterHangar() {
+    this.ui.showScreen('hangar');
+    this.hangar?.start();
+    // The canvas has no size until the screen is actually shown.
+    requestAnimationFrame(() => this.hangar?.resize());
   }
 
   /** Multiplayer flow:
@@ -266,8 +245,7 @@ export class App {
 
     this._isMultiplayer = true;
 
-    // Force Jammo for both fighters in multiplayer.
-    this.playerCharacter = 'jammo';
+    this.playerCharacter = 'mecka';
 
     // Build the 3D battle scene if it doesn't exist yet.
     this._ensureBattleBuilt();
@@ -306,7 +284,7 @@ export class App {
 
     // Enter the battle screen.
     this.ui.showScreen('battle');
-    this.charSelectPreview?.stop();
+    this.hangar?.stop();
     this.renderer.resize();
     this.fightCam.setAspect(this.renderer.aspect);
     this.reset();
@@ -349,15 +327,6 @@ export class App {
       case 'crouch_up':  f.setCrouching(false); break;
     }
   }
-  _enterCharacterSelect() {
-    this.ui.showScreen('character-select');
-    if (this.charSelectPreview) {
-      // Show the currently-selected character in the preview viewport.
-      this.charSelectPreview.setCharacter(this.ui.getCharacterSelection());
-      this.charSelectPreview.start();
-      requestAnimationFrame(() => this.charSelectPreview.resize());
-    }
-  }
   _enterBattle() {
     this._isMultiplayer = false;     // single-player mode
     this._myFighter = null;
@@ -366,7 +335,7 @@ export class App {
     this._ensureBattleBuilt();
     this._buildFighters();
     this.ui.showScreen('battle');
-    this.charSelectPreview?.stop();
+    this.hangar?.stop();
     this.renderer.resize();
     this.fightCam.setAspect(this.renderer.aspect);
     this.reset();

@@ -121,19 +121,57 @@ GLTF clips can be pure pose animations with the root locked at origin.
 
 ---
 
+## The MECKA — one character, 32 armour sets
+
+There is exactly one playable character: the **MECKA**, a procedurally
+generated robot built in code (`src/game/MeckaKnightProcedural.js`) on Jammo's
+extracted 59-bone skeleton, so all 13 Mixamo clips bind 1:1.  Jammo and Knight
+were retired as selectable characters on 2026-07-12.
+
+Armour is **not GLB files**.  A "part" is the pair *(set, slot)* — 32 sets ×
+5 slots (`helmet · torso · armL · armR · legs`) = 160 parts, all generated at
+build time and toggled by an equip registry.  Rarity ladder:
+**COMMON → UNCOMMON → RARE → EPIC**, signalled primarily by skeleton coverage
+(see `MECKA_GUIDELINES.md`).
+
+### Mecka Hangar (`src/game/MeckaHangar.js`)
+
+The customisation screen, reached from the main menu.  Portrait split: a Three
+viewport up top (pedestal, drag-to-spin, five anchor nodes joined to the real
+bones by live SVG leader lines, rarity flash on equip) over a datapad panel
+(stat bars with ghost/delta preview, filtered inventory grid, eye-colour
+picker).  It persists to `localStorage` under `mecka.hangar.v1` and writes
+through to `CONFIG.mecka.playerLoadout` / `playerEye`, which is what `Fighter`
+reads when it builds.
+
+The Hangar builds **all 32 sets** (~3,150 meshes, ~170 visible) because it
+swaps live.  `Fighter` passes `opts.sets` so a battle build only constructs
+the 1–5 sets the loadout actually names (~620 meshes).  Don't conflate the two.
+
+Data lives in `src/game/HangarCatalog.js`.  Stats are *derived*, never
+hand-authored:
+
+    value = TIER_MAGNITUDE[tier] × SLOT_PROFILE[slot][stat] × (1 + archetype_tilt)
+
 ## Known limitations / next upgrades
 
-- Placeholder robots only: no rigged animation, no skinned meshes.
 - No sound (easy to add — see `Fighter._spawnHitFX` for a hook point).
 - Very small arena: no knock-back into walls, no ring-out.
-- AI is intentionally simple; no combo reading, no difficulty levels.
-- Only one match; no round/best-of logic, no character select.
+- AI has difficulty levels but no combo reading.
+- Only one match; no round/best-of logic.
+- Hangar stats are cosmetic — `Fighter._computeStats()` still reads the legacy
+  `CONFIG.defaultLoadout`.  Wiring Hangar stats to combat is a *balance*
+  decision, not a plumbing one.
+- Inventory cards show a slot glyph, not a render.  160 runtime thumbnails
+  would stall the GPU on mobile; bake a sprite atlas offline with
+  `tools/render_jpg.py` instead.
+- Dodge side-switch (passing through the opponent to escape a corner) is still
+  only half-built: the i-frames exist, the movement doesn't.
 - No accessibility pass (colorblind bars, screen reader labels).
 - No haptics. Easy win: `navigator.vibrate(10)` on punch/hit.
-- No sprite/particle system beyond tiny one-shot burst meshes.
 
 Good next steps:
 1. Add sound with a single `AudioListener` on the camera + buffered sources.
-2. Swap procedural Meckas for GLTF as described above.
-3. Add a character-select scene and a simple best-of-3 round manager.
+2. Bake per-part thumbnails into a sprite atlas for the Hangar grid.
+3. Decide whether Hangar stats should drive combat, then tune.
 4. Add post-processing (Bloom on projectiles) — only if perf budget allows.

@@ -19,6 +19,7 @@ sed "s|from 'three'|from './three.module.js'|" \
 ## Run
 
 ```bash
+node hangar_harness.mjs   # Hangar: mixed loadouts, 160 swaps, bones, eyes, ladder
 node harness.mjs          # builds every equip state, dumps world-space tris
 python3 verify_tiers.py   # tier contracts: coverage, bulk ladder, gloves/boots
 python3 verify8.py        # SENTINEL suite
