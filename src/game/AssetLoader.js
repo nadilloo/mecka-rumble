@@ -17,6 +17,7 @@
    ============================================================ */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { CONFIG } from '../config.js';
 import { buildMeckaKnightScene } from './MeckaKnightProcedural.js';
 
 const BASE = './assets';
@@ -132,8 +133,18 @@ export async function loadAllAssets() {
   // Procedural packs: build the scene graph in code.
   for (const [charId, pack] of Object.entries(CHARACTERS)) {
     if (!pack.procedural) continue;
+    // Preview scene: build ONLY the player's set.  Building all 32 sets
+    // creates ~3,150 meshes (~170 visible) and Three.js still walks every
+    // node in updateMatrixWorld each frame — far too heavy for mobile.
+    const previewSet = CONFIG.mecka.playerSet;
+    const baseScene = buildMeckaKnightScene({ sets: [previewSet], equip: previewSet });
+    // Restore each set's branded eye/visor colours (the model defaults to
+    // the viewer's white eye pick; in-game we want SPARTAN gold, MAGMA
+    // ember, VOID magenta, etc).
+    baseScene.userData.mecka.setEyeColor(null);
     characters[charId] = {
-      baseScene: buildMeckaKnightScene(),
+      baseScene,
+      build: buildMeckaKnightScene,   // Fighter builds its own set per side
       meshScale: pack.meshScale,
       groundLift: pack.groundLift,
       textures: {},

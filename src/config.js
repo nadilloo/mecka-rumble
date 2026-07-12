@@ -16,6 +16,15 @@ export const CONFIG = {
   },
 
   /* -------- Stage -------- */
+  // Which MECKA armour set each fighter wears.  Keys come from
+  // SET_CATALOG in MeckaKnightProcedural.js (32 sets across 4 tiers:
+  // e.g. common 'scrap', uncommon 'blue'/'red', rare 'spartan',
+  // epic 'shogun').  Only the listed sets are built per fighter.
+  mecka: {
+    playerSet: 'blue',   // SENTINEL
+    cpuSet:    'red',    // MAGMA
+  },
+
   stage: {
     laneHalfWidth: 9.0,        // bigger arena (was 5.5)
     floorRadius: 9.5,
