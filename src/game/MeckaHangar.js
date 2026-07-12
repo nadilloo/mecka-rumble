@@ -42,6 +42,23 @@ const SLOT_GLYPH = {
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+/* Read the saved loadout WITHOUT constructing the Hangar.  App needs this at
+ * boot so Fighter knows what to wear, but building the Hangar means building
+ * all 32 sets (~3,150 meshes) — too expensive to pay for on a launch that
+ * goes straight to BATTLE. */
+export function readHangarState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+    if (raw && raw.loadout) {
+      const valid = new Set(SET_CATALOG.map((s) => s.key));
+      const lo = { ...DEFAULT_LOADOUT };
+      for (const s of SLOT_IDS) if (valid.has(raw.loadout[s])) lo[s] = raw.loadout[s];
+      return { loadout: lo, eye: raw.eye ?? null };
+    }
+  } catch (e) { /* corrupt or blocked — fall through to defaults */ }
+  return { loadout: { ...DEFAULT_LOADOUT }, eye: { hex: '#8ee9ff', level: 2 } };
+}
+
 export class MeckaHangar {
   constructor(rootEl) {
     this.root = rootEl;
@@ -548,18 +565,7 @@ export class MeckaHangar {
   }
 
   /* ---------------- persistence ---------------- */
-  _load() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
-      if (raw && raw.loadout) {
-        const valid = new Set(SET_CATALOG.map((s) => s.key));
-        const lo = { ...DEFAULT_LOADOUT };
-        for (const s of SLOT_IDS) if (valid.has(raw.loadout[s])) lo[s] = raw.loadout[s];
-        return { loadout: lo, eye: raw.eye ?? null };
-      }
-    } catch (e) { /* corrupt or blocked — fall through to defaults */ }
-    return { loadout: { ...DEFAULT_LOADOUT }, eye: { hex: '#8ee9ff', level: 2 } };
-  }
+  _load() { return readHangarState(); }
 
   _save() {
     try {

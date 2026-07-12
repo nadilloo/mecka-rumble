@@ -1,5 +1,5 @@
-import { buildMeckaKnightScene, SET_CATALOG, TIER_COLORS } from './MeckaKnightProcedural.js';
-import { buildCatalog, indexParts, totalStats, SLOTS, SLOT_IDS, STAT_MAX, RARITY } from './HangarCatalog.js';
+import { buildMeckaKnightScene, SET_CATALOG, TIER_COLORS } from '../src/game/MeckaKnightProcedural.js';
+import { buildCatalog, indexParts, totalStats, SLOTS, SLOT_IDS, STAT_MAX, RARITY } from '../src/game/HangarCatalog.js';
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.log('  FAIL ' + m); fails++; } else console.log('  ok   ' + m); };

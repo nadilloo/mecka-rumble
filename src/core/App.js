@@ -22,7 +22,7 @@ import { Fighter } from '../game/Fighter.js';
 import { FighterAI } from '../game/FighterAI.js';
 import { ProjectileManager } from '../game/ProjectileManager.js';
 import { UIManager } from '../ui/UIManager.js';
-import { MeckaHangar } from '../game/MeckaHangar.js';
+import { MeckaHangar, readHangarState } from '../game/MeckaHangar.js';
 import { PlayroomManager } from '../network/PlayroomManager.js';
 
 export class App {
@@ -55,19 +55,14 @@ export class App {
     // ---- Mecka Hangar (its own Three scene + datapad DOM). ----
     // Replaces both the old Workshop (Jammo-shaped parts catalog) and the
     // character-select screen: there is one character now, and you dress it.
-    const hangarEl = document.getElementById('hangar-screen');
-    if (hangarEl) {
-      this.hangar = new MeckaHangar(hangarEl);
-      this.hangar.onBack(() => this._enterMenu());
-      // Confirming a part writes straight through to the config the Fighter
-      // reads at build time, so the next fight wears what you just equipped.
-      this.hangar.onChange((loadout, eye) => {
-        CONFIG.mecka.playerLoadout = loadout;
-        CONFIG.mecka.playerEye = eye;
-      });
-      CONFIG.mecka.playerLoadout = this.hangar.getLoadout();
-      CONFIG.mecka.playerEye = this.hangar.getEye();
-    }
+    // Built lazily on first visit — see _enterHangar().  Reading the saved
+    // loadout is cheap; building the Hangar is not (all 32 sets, ~3,150 meshes),
+    // and a launch straight into BATTLE shouldn't pay for it.
+    this.hangar = null;
+    this._hangarEl = document.getElementById('hangar-screen');
+    const saved = readHangarState();
+    CONFIG.mecka.playerLoadout = saved.loadout;
+    CONFIG.mecka.playerEye = saved.eye;
 
     // One playable character. Jammo and Knight were retired 2026-07-12.
     this.playerCharacter = 'mecka';
@@ -137,7 +132,9 @@ export class App {
     const F = CONFIG.fighter;
     const handleShoot = (fighter, kind) =>
       this.projectiles.spawn(fighter, kind);
-    const playerLoadout = this.ui.getLoadout();
+    // Legacy parts loadout — still drives Fighter._computeStats().  It is no
+    // longer user-editable (the Workshop is gone); Hangar stats are separate.
+    const playerLoadout = { ...CONFIG.defaultLoadout };
     const cpuLoadout = { ...CONFIG.defaultLoadout };
 
     // Player picks their character at the character-select screen.
@@ -210,6 +207,16 @@ export class App {
   }
   _enterHangar() {
     this.ui.showScreen('hangar');
+    if (!this.hangar && this._hangarEl) {
+      this.hangar = new MeckaHangar(this._hangarEl);
+      this.hangar.onBack(() => this._enterMenu());
+      // Confirming a part writes straight through to the config Fighter reads
+      // at build time, so the next fight wears what you just equipped.
+      this.hangar.onChange((loadout, eye) => {
+        CONFIG.mecka.playerLoadout = loadout;
+        CONFIG.mecka.playerEye = eye;
+      });
+    }
     this.hangar?.start();
     // The canvas has no size until the screen is actually shown.
     requestAnimationFrame(() => this.hangar?.resize());

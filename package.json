@@ -1,0 +1,6 @@
+{
+  "name": "mecka-rumble",
+  "private": true,
+  "type": "module",
+  "devDependencies": { "three": "0.160.0", "jsdom": "^24.0.0" }
+}

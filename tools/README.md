@@ -18,7 +18,13 @@ sed "s|from 'three'|from './three.module.js'|" \
 
 ## Run
 
+First run only: `npm install` in the project root (pulls three + jsdom).
+
 ```bash
+node boot_check.mjs       # BOOTS UIManager + MeckaHangar against the real
+                          # index.html in jsdom, GPU stubbed.  Catches dead DOM
+                          # refs and screens that can't be shown — the class of
+                          # bug that `node --check` cannot see.  Run this ALWAYS.
 node hangar_harness.mjs   # Hangar: mixed loadouts, 160 swaps, bones, eyes, ladder
 node harness.mjs          # builds every equip state, dumps world-space tris
 python3 verify_tiers.py   # tier contracts: coverage, bulk ladder, gloves/boots

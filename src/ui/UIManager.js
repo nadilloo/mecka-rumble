@@ -1,23 +1,21 @@
 /* ============================================================
    UIManager.js
    Manages everything that lives outside the 3D scene:
-     - Screen switching: menu → workshop → battle
+     - Screen switching: menu → hangar → battle
      - HUD bars + announcer + debug overlay
      - Pause modal (with difficulty / anim speed / command list)
      - End-of-fight modal
-     - Workshop screen (parts buttons + live stat bars)
+
+   The Mecka Hangar owns its own DOM and events — see MeckaHangar.js.
+   The old Workshop (parts buttons + stat bars) was removed 2026-07-12.
    ============================================================ */
 import { CONFIG } from '../config.js';
 import { formatNum } from '../utils/debug.js';
-
-const LS_KEY = 'mecka.loadout.v1';
 
 export class UIManager {
   constructor() {
     // ---- Screens ----
     this.menuScreen      = document.getElementById('menu-screen');
-    this.charSelectScreen = document.getElementById('character-select-screen');
-    this.workshopScreen  = document.getElementById('workshop-screen');
     this.battleScreen    = document.getElementById('battle-screen');
 
     // ---- HUD ----
@@ -37,32 +35,14 @@ export class UIManager {
     this.endTitle = document.getElementById('end-title');
     this.endSub   = document.getElementById('end-sub');
 
-    // ---- Workshop bits ----
-    this.workshopCatsEl = document.getElementById('workshop-cats');
-    this.statPower = document.getElementById('stat-power');
-    this.statArmor = document.getElementById('stat-armor');
-    this.statSpeed = document.getElementById('stat-speed');
-
     if (!CONFIG.debug.showOverlay) this.debug.style.display = 'none';
 
     this._fps = 60; this._frames = 0; this._fpsT = 0;
 
     // External callbacks
     this._menuCb         = () => {};
-    this._workshopCb     = () => {};
     this._pauseCb        = () => {};
     this._endCb          = () => {};
-    this._loadoutChangeCb = () => {};
-    this._charSelectCb   = () => {};
-
-    // Workshop state
-    this.loadout = this._loadLoadoutFromStorage();
-    this._renderWorkshop();
-    this._updateStatBars();
-
-    // Character-select state — persisted across sessions.
-    this._charSelection = this._loadCharSelectionFromStorage();
-    this._renderCharSelection();
 
     this._setupOrientation();
     this._wireMenu();
@@ -72,57 +52,19 @@ export class UIManager {
 
   /* ---------- Screen control ---------- */
   showScreen(name) {
-    [this.menuScreen, this.charSelectScreen, this.workshopScreen, this.battleScreen].forEach(el => {
-      if (!el) return;
+    // Query live rather than keep a hardcoded list: the old list silently
+    // dropped any screen it didn't know about, so adding #hangar-screen to
+    // the DOM wasn't enough to make it showable.
+    document.querySelectorAll('.screen').forEach(el => {
       el.classList.toggle('show', el.id === `${name}-screen`);
     });
   }
 
   /* ---------- Callback hooks ---------- */
   onMenuAction(fn)            { this._menuCb = fn; }
-  onCharacterSelectAction(fn) { this._charSelectCb = fn; }
   onPauseAction(fn)           { this._pauseCb = fn; }
   onEndAction(fn)             { this._endCb = fn; }
   onPauseClick(fn)            { this.pauseBtn.addEventListener('click', fn); }
-  onLoadoutChange(fn)  { this._loadoutChangeCb = fn; }
-
-  /* ---------- Loadout (saved to localStorage) ---------- */
-  getLoadout() { return { ...this.loadout }; }
-
-  setLoadout(lo) {
-    this.loadout = { ...lo };
-    this._saveLoadoutToStorage();
-    this._renderWorkshop();
-    this._updateStatBars();
-  }
-
-  _loadLoadoutFromStorage() {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        // Validate against catalog.
-        const out = { ...CONFIG.defaultLoadout };
-        for (const cat of Object.keys(out)) {
-          if (parsed[cat] && (CONFIG.parts[cat] || []).some(p => p.id === parsed[cat])) {
-            out[cat] = parsed[cat];
-          }
-        }
-        return out;
-      }
-    } catch (e) {
-      console.warn('Could not read loadout from storage:', e);
-    }
-    return { ...CONFIG.defaultLoadout };
-  }
-
-  _saveLoadoutToStorage() {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify(this.loadout));
-    } catch (e) {
-      console.warn('Could not write loadout:', e);
-    }
-  }
 
   /* ---------- Pause / End modals ---------- */
   showPauseModal(currentDifficulty, currentAnimSpeed) {
@@ -188,91 +130,12 @@ export class UIManager {
     }
   }
 
-  /* ---------- Workshop rendering ---------- */
-  _renderWorkshop() {
-    if (!this.workshopCatsEl) return;
-    const labels = {
-      head: 'HEAD',
-      leftArm: 'LEFT ARM',
-      rightArm: 'RIGHT ARM',
-      torso: 'TORSO',
-      legs: 'LEGS',
-    };
-    let html = '';
-    for (const cat of Object.keys(labels)) {
-      const variants = CONFIG.parts[cat] || [];
-      const selected = this.loadout[cat];
-      html += `<div class="cat">
-        <div class="cat-title">${labels[cat]}</div>
-        <div class="cat-row">${variants.map(v =>
-          `<button class="part-btn ${v.id === selected ? 'selected' : ''}"
-                   data-cat="${cat}" data-id="${v.id}">${v.name}</button>`
-        ).join('')}</div>
-      </div>`;
-    }
-    this.workshopCatsEl.innerHTML = html;
-  }
-
-  _updateStatBars() {
-    let p = 1, a = 1, s = 1;
-    for (const [cat, id] of Object.entries(this.loadout)) {
-      const v = (CONFIG.parts[cat] || []).find(x => x.id === id);
-      if (!v) continue;
-      p *= v.stats.power;
-      a *= v.stats.armor;
-      s *= v.stats.speed;
-    }
-    // Map stat (range ~0.5 to ~1.5) to 0-100% bar position.  1.0 = 50%.
-    const pct = (val, lowerIsBetter = false) => {
-      // For armor, lower = better, so flip.
-      const v = lowerIsBetter ? (2 - val) : val;
-      return clamp((v - 0.5) / 1.0, 0, 1) * 100;
-    };
-    const setBar = (el, percent) => {
-      el.style.left = '0%';
-      el.style.width = percent + '%';
-    };
-    setBar(this.statPower, pct(p));
-    setBar(this.statArmor, pct(a, true));   // armor is 0.7 = good, so flip
-    setBar(this.statSpeed, pct(s));
-  }
-
   /* ---------- Wiring ---------- */
   _wireMenu() {
     this.menuScreen.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-menu]');
       if (!btn) return;
       this._menuCb(btn.dataset.menu);
-    });
-  }
-
-  _wireWorkshop() {
-    this.workshopScreen.addEventListener('click', (e) => {
-      const partBtn = e.target.closest('.part-btn');
-      if (partBtn) {
-        const cat = partBtn.dataset.cat;
-        const id  = partBtn.dataset.id;
-        this.loadout[cat] = id;
-        this._renderWorkshop();
-        this._updateStatBars();
-        this._loadoutChangeCb({ ...this.loadout });
-        return;
-      }
-      const ctlBtn = e.target.closest('button[data-workshop]');
-      if (ctlBtn) {
-        const action = ctlBtn.dataset.workshop;
-        if (action === 'reset') {
-          this.loadout = { ...CONFIG.defaultLoadout };
-          this._renderWorkshop();
-          this._updateStatBars();
-          this._loadoutChangeCb({ ...this.loadout });
-        } else if (action === 'save') {
-          this._saveLoadoutToStorage();
-          this._workshopCb('save');
-        } else if (action === 'back') {
-          this._workshopCb('back');
-        }
-      }
     });
   }
 
@@ -299,53 +162,6 @@ export class UIManager {
     });
   }
 
-  /* ---------- Character select ---------- */
-  getCharacterSelection() { return this._charSelection; }
-
-  setCharacterSelection(charId) {
-    if (charId !== 'mecka') return;
-    this._charSelection = charId;
-    this._renderCharSelection();
-    this._saveCharSelectionToStorage();
-  }
-
-  _renderCharSelection() {
-    if (!this.charSelectScreen) return;
-    this.charSelectScreen.querySelectorAll('.char-pick').forEach(b => {
-      b.classList.toggle('selected', b.dataset.char === this._charSelection);
-    });
-  }
-
-  _loadCharSelectionFromStorage() {
-    try {
-      const raw = localStorage.getItem('mecka.character.v1');
-      if (raw === 'mecka') return raw;
-    } catch (e) { /* ignore */ }
-    return 'mecka';
-  }
-
-  _saveCharSelectionToStorage() {
-    try { localStorage.setItem('mecka.character.v1', this._charSelection); }
-    catch (e) { /* ignore */ }
-  }
-
-  _wireCharacterSelect() {
-    if (!this.charSelectScreen) return;
-    this.charSelectScreen.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-charselect]');
-      if (!btn) return;
-      const action = btn.dataset.charselect;
-      if (action === 'pick') {
-        const char = btn.dataset.char;
-        this._charSelectCb('pick', char);
-      } else if (action === 'fight') {
-        this._charSelectCb('fight');
-      } else if (action === 'back') {
-        this._charSelectCb('back');
-      }
-    });
-  }
-
   _setupOrientation() {
     if (screen.orientation && typeof screen.orientation.lock === 'function') {
       screen.orientation.lock('portrait').catch(() => {});
@@ -353,4 +169,3 @@ export class UIManager {
   }
 }
 
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
