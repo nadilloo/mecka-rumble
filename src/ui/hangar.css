@@ -57,7 +57,7 @@
 }
 .hangar-leader {
   fill: none; stroke: var(--cyan); stroke-width: 1.25;
-  opacity: .55; stroke-linejoin: round;
+  opacity: .34; stroke-linejoin: round;
 }
 .hangar-joint { fill: var(--cyan); opacity: .9; }
 
@@ -73,8 +73,10 @@
   background: radial-gradient(circle at 50% 35%, #2f7fd8, #0d2952 70%);
   box-shadow: 0 0 10px rgba(70,216,255,.5), inset 0 0 8px rgba(70,216,255,.35);
   padding: 0;
-  transition: transform .14s ease, box-shadow .14s ease;
+  opacity: .5;                                     /* dim until selected */
+  transition: transform .14s ease, box-shadow .14s ease, opacity .14s ease;
 }
+.hangar-node.bare::after { background: #3a4a63; }
 .hangar-node svg { width: 22px; height: 22px; fill: #dff2ff; }
 .hangar-node::after {                                  /* rarity pip */
   content: ''; position: absolute; right: -1px; bottom: -1px;
@@ -88,8 +90,10 @@
   color: var(--ink-dim); white-space: nowrap;
 }
 .hangar-node.active {
-  transform: translate(-50%, -50%) scale(1.14);
-  box-shadow: 0 0 18px var(--cyan), inset 0 0 10px rgba(70,216,255,.6);
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.16);
+  box-shadow: 0 0 22px var(--cyan), inset 0 0 10px rgba(70,216,255,.7);
+  border-color: #b8f0ff;
 }
 .hangar-node.active .node-label { color: var(--cyan); }
 .hangar-node:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
@@ -107,29 +111,6 @@
   100% { opacity: 0; }
 }
 
-.hangar-hud {
-  position: absolute; top: 0; left: 0; right: 0;
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 8px 12px; pointer-events: none;
-  font: 700 14px/1 'Chakra Petch', sans-serif; letter-spacing: .06em;
-  text-shadow: 0 2px 6px #000;
-}
-.hangar-hud .creds {
-  font-family: 'Share Tech Mono', monospace; font-size: 13px;
-  color: var(--amber-hi); display: flex; gap: 4px; align-items: center;
-}
-.hangar-hud .creds b { color: var(--ink); font-weight: 400; }
-
-/* ============ DATAPAD (bottom 60%) ============ */
-.hangar-pad {
-  flex: 1 1 auto; min-height: 0;
-  display: flex; flex-direction: column; gap: 7px;
-  padding: 8px 8px 10px;
-  background:
-    linear-gradient(180deg, #0f1d3c 0%, #091428 100%);
-  border-top: 2px solid var(--bevel);
-  box-shadow: inset 0 2px 0 rgba(120,180,255,.18);
-}
 
 .pad-cols { display: flex; gap: 7px; flex: 1 1 auto; min-height: 0; }
 .pad-left  { flex: 0 0 41%; display: flex; flex-direction: column; gap: 7px; min-height: 0; }
@@ -314,3 +295,21 @@
 @media (prefers-reduced-motion: reduce) {
   .stat-ghost.on, .part-card.previewing, #hangar-flash.fire { animation: none; }
 }
+
+/* ---- unequip card ---- */
+.part-card.none {
+  --r: #5b6d8a;
+  border-color: #52627e;
+  border-style: dashed;
+  background: linear-gradient(180deg, #16233c, #0c1424);
+  box-shadow: none;
+}
+.part-card.none .card-art {
+  background: radial-gradient(circle at 50% 40%, #1a2740, #0a1120 90%);
+}
+.part-card.none .card-art svg {
+  fill: none; stroke: #7c8ba6; stroke-width: 2.2; stroke-linecap: round;
+}
+.part-card.none .card-name { color: #9dabc2; }
+.part-card.none .card-tier { background: #52627e; box-shadow: none; }
+.part-card.none.equipped { border-color: var(--cyan); border-style: solid; }

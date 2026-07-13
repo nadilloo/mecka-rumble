@@ -24,6 +24,10 @@ export class Renderer {
     this.three.shadowMap.enabled = true;
     this.three.shadowMap.type = THREE.PCFSoftShadowMap;
     this.three.outputColorSpace = THREE.SRGBColorSpace;
+    // Filmic response curve.  Dark armour sets were crushing to pure black in
+    // the arena — this maps the shadow range into something the eye can read.
+    this.three.toneMapping = THREE.ACESFilmicToneMapping;
+    this.three.toneMappingExposure = 1.2;
 
     this.aspect = 1;
     this.resize();

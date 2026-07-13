@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CONFIG } from '../config.js';
 import { buildMeckaKnightScene } from './MeckaKnightProcedural.js';
+import { buildCrouchClip } from './proceduralClips.js';
 
 const BASE = './assets';
 
@@ -166,6 +167,16 @@ export async function loadAllAssets() {
     }
     clips[name] = clip;
   });
+
+  // ---- Procedural clips ----
+  // Generated here, AFTER the loop above: that loop zeroes hips local x/z on
+  // every LOADED clip, and local z is the vertical axis.  Run this earlier and
+  // the crouch's hip drop would be stripped right back out.
+  // Built from the idle pose so it carries a track for every bone idle drives —
+  // an untracked bone reverts toward the T-pose bind pose under blending.
+  if (clips.idle) {
+    clips.crouch = buildCrouchClip(clips.idle);
+  }
 
   // ---- Auto-fit pass for character packs that opted in ----
   // Some rigs (e.g. Knight) are authored at very different scales

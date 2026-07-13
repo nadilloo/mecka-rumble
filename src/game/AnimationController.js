@@ -33,7 +33,9 @@ const LOOPING = new Set(['idle']);
 // Which actions are terminal — play once, clamp, stay on last frame.
 // `ko` stays until match reset.  `shield` stays until setShielding(false)
 // calls stop() which fades back to idle.
-const TERMINAL = new Set(['ko', 'shield']);
+// `crouch` behaves like `shield`: play in, clamp on the last frame, and stay
+// there until setCrouching(false) calls stop() and fades back to idle.
+const TERMINAL = new Set(['ko', 'shield', 'crouch']);
 
 // Crossfade time between clips (seconds).
 const FADE = 0.12;

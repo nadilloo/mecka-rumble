@@ -83,7 +83,7 @@ export class App {
     if (this._battleReady) return;
 
     this.renderer = new Renderer(this.canvas, this.combatEl);
-    this.scene    = new BattleScene();
+    this.scene    = new BattleScene(this.renderer.three);
     this.fightCam = new FightCamera(this.renderer.aspect);
 
     // Damage callback: hit pause + camera shake on every connecting hit.

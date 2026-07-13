@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 
 export class BattleScene {
-  constructor() {
+  constructor(renderer = null) {
+    this.renderer = renderer;   // needed to bake the environment map (PMREM)
     this.scene = new THREE.Scene();
     this.scene.background = null;
     this.scene.fog = new THREE.Fog(0x0a0a1a, 18, 34);
@@ -17,26 +18,40 @@ export class BattleScene {
   }
 
   _lights() {
-    this.scene.add(new THREE.AmbientLight(0x8888aa, 0.55));
+    // Filmic response so dark armour (KRAKEN, VOID, UMBRA) doesn't crush to
+    // black.  Set on the shared renderer — see Renderer.js.
+    // Image-based lighting: fills the shadow side with bounced light.  Without
+    // it, a dark helmet in this arena is an unreadable silhouette.
+    if (this.renderer) {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      pmrem.dispose();
+    }
 
-    const key = new THREE.DirectionalLight(0xffeecc, 1.05);
-    key.position.set(4, 8, 4);
+    this.scene.add(new THREE.AmbientLight(0x9aa8cc, 0.85));
+    this.scene.add(new THREE.HemisphereLight(0xbcd2ff, 0x2a2f45, 0.9));
+
+    const key = new THREE.DirectionalLight(0xfff0d8, 2.0);
+    key.position.set(5, 10, 7);
     key.castShadow = true;
-    key.shadow.mapSize.set(512, 512);
-    key.shadow.camera.near = 1; key.shadow.camera.far = 30;
-    key.shadow.camera.left = -10; key.shadow.camera.right = 10;
-    key.shadow.camera.top = 10;   key.shadow.camera.bottom = -10;
-    key.shadow.bias = -0.0015;
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.camera.top = 8; key.shadow.camera.bottom = -2;
+    key.shadow.camera.left = -12; key.shadow.camera.right = 12;
     this.scene.add(key);
 
-    // Pink rim on the opposite side.
-    const rim = new THREE.DirectionalLight(0xff4d76, 0.45);
-    rim.position.set(-5, 4, -5);
+    // Warm rim from behind — carves fighters off the backdrop.
+    const rim = new THREE.DirectionalLight(0xff8a6a, 1.15);
+    rim.position.set(-6, 6, -9);
     this.scene.add(rim);
 
+    // Cool counter-rim on the other shoulder.
+    const rim2 = new THREE.DirectionalLight(0x8fc4ff, 1.0);
+    rim2.position.set(7, 5, -8);
+    this.scene.add(rim2);
+
     // Cool fill from below for edge highlights.
-    const fill = new THREE.DirectionalLight(0x4466ff, 0.18);
-    fill.position.set(0, -2, 6);
+    const fill = new THREE.DirectionalLight(0x6688ff, 0.45);
+    fill.position.set(-5, 2, 6);
     this.scene.add(fill);
   }
 

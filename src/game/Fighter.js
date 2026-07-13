@@ -143,7 +143,7 @@ export class Fighter {
       : null;
     const meckaSets = typeof meckaEquip === 'string'
       ? [meckaEquip]
-      : (meckaEquip ? [...new Set(Object.values(meckaEquip))] : []);
+      : (meckaEquip ? [...new Set(Object.values(meckaEquip))].filter(Boolean) : []);
     const cloned = pack.procedural
       ? pack.build({ sets: meckaSets, equip: meckaEquip })
       : cloneSkinned(pack.baseScene);
@@ -163,6 +163,9 @@ export class Fighter {
       cloned.traverse((obj) => {
         if (!obj.isMesh && !obj.isSkinnedMesh) return;
         obj.castShadow = true;
+        // Take light from the scene environment map, so dark armour
+        // reads as a shape instead of a hole (see BattleScene._lights).
+        if (obj.material && 'envMapIntensity' in obj.material) obj.material.envMapIntensity = 1.0;
         obj.receiveShadow = true;
       });
       root.add(cloned);
@@ -355,8 +358,11 @@ export class Fighter {
     if (this.battery <= 0) this.lockoutTime = B.emptyLockoutSeconds;
   }
 
-  /** Begin an action by name.  Reads the descriptor from CONFIG. */
-  _startAction(name) {
+  /** Begin an action by name.  Reads the descriptor from CONFIG.
+   *  `clipName` lets an action borrow another action's animation — dodge wears
+   *  the shield clip, because pulling back raises the guard and a swipe merely
+   *  adds a backstep.  Pass null to keep whatever clip is already playing. */
+  _startAction(name, clipName = name) {
     const d = ACT[name];
     if (!d) return false;
     this.action = {
@@ -370,11 +376,12 @@ export class Fighter {
       durationSec: (d.startup + d.active + d.recovery) * FRAME,
     };
     this.state = name;
-    // Drop shield when committing to an attack.
-    if (this.shielding) this._setShield(false);
+    // Drop the guard when committing to an action.  keepAnim: we're about to
+    // play a clip anyway, so fading to idle first would be a wasted crossfade.
+    if (this.shielding) this._setShield(false, true);
     // Tell the animator to play this action and stretch the clip
     // to the action's frame budget so timing matches visuals.
-    this.anim.playFor(name, this.action.durationSec);
+    if (clipName) this.anim.playFor(clipName, this.action.durationSec);
     return true;
   }
 
@@ -412,7 +419,11 @@ export class Fighter {
     if (!this.canAct(ACT.dodge.cost)) return false;
     if (this.crouching) return false;
     this._spend(ACT.dodge.cost);
-    this._startAction('dodge');
+    // The dodge wears the SHIELD animation, not the Dodge clip.  Pulling back
+    // already raised the guard; a swipe just adds the backstep.  If the guard
+    // is already up we pass null so the pose carries straight through instead
+    // of restarting — the CPU/AI, which dodges cold, gets the clip played.
+    this._startAction('dodge', this.shielding ? null : 'shield');
     const dir = sign(this.root.position.x - opponentX) || -this.facing;
     this._moveTarget = this.root.position.x + dir * C.dodgeDistance;
     return true;
@@ -436,7 +447,7 @@ export class Fighter {
   toggleShield() { this._setShield(!this.shielding); }
   setShielding(on) { this._setShield(on); }
   setBlocking(on)  { this._setShield(on); }    // explicit alias
-  _setShield(on) {
+  _setShield(on, keepAnim = false) {
     if (this.isKO() || this.lockoutTime > 0) on = false;
     if (this.crouching) on = false;             // can't block while crouched
     if (this.action && this._phase() !== PHASE.RECOVERY) on = false;
@@ -450,7 +461,7 @@ export class Fighter {
     } else if (!on && this.shielding) {
       this.shielding = false;
       this.state = 'idle';
-      this.anim.stop();
+      if (!keepAnim) this.anim.stop();
       this.shieldMesh.userData.target = 0;
     }
   }
@@ -471,14 +482,13 @@ export class Fighter {
       this.crouching = true;
       this.state = 'crouching';
       this.action = null;
-      // No dedicated crouch animation — bring the body lower visually
-      // by lowering the root.  Standing height comes back on release.
-      this._origRootY = this.root.position.y;
-      this.root.position.y = (this._origRootY ?? 0) - 0.4;
+      // Real crouch now — the legs actually bend (see proceduralClips.js).
+      // This used to sink the whole root 0.4 into the floor, feet and all.
+      this.anim.play('crouch');
     } else if (!on && this.crouching) {
       this.crouching = false;
       this.state = 'idle';
-      this.root.position.y = this._origRootY ?? 0;
+      this.anim.stop();
     }
   }
 
@@ -770,6 +780,12 @@ export class Fighter {
         // Hit reaction & ko don't auto-return through here (ko stays).
         if (this.state !== 'ko') {
           this.state = 'idle';
+          // An action that BORROWS a held clip won't auto-return on its own:
+          // the controller treats `shield` as terminal and clamps it, so a
+          // dodge (which wears the shield pose) would freeze the guard up
+          // forever.  Release it explicitly.  No-op for ordinary one-shots,
+          // which have already faded themselves back to idle by now.
+          if (!this.shielding && !this.crouching) this.anim.stop();
         }
         this.action = null;
       }

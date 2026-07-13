@@ -173,11 +173,18 @@ export class InputManager {
       }
     }
 
-    // ---- BLOCK / CROUCH: held variants of backward / down swipes.
-    // We require both: (a) a clear directional displacement, and
-    // (b) the pointer to come to rest at a stable spot for HOLD_LATCH_MS.
-    // If the user keeps moving (e.g. into an uppercut path), the
-    // stillAnchor keeps resetting and the latch never fires.
+    // ---- GUARD (block) fires IMMEDIATELY on any backward pull.
+    // It used to wait HOLD_LATCH_MS for the pointer to come to rest, so it
+    // could tell "block" from "dodge" before committing.  That wait is exactly
+    // what made shielding feel sluggish.  We now raise the guard the moment you
+    // pull back and defer only the MOVEMENT decision to release:
+    //     released while still moving (a swipe) -> dodge backstep
+    //     released after settling   (a hold)    -> shield in place
+    // Both wear the same shield animation, so there is nothing to disambiguate
+    // visually and nothing to wait for.
+    //
+    // CROUCH keeps its stationary latch: a down-drag has to be told apart from
+    // the tail of a hook/uppercut arc, and there is no shared pose to fall back on.
     if (!a.blockFired && !a.crouchFired && !a.superFired) {
       const fwdSign = this.facingRight ? 1 : -1;
       const movingBack = dx * fwdSign < -IN.shortSwipeMinPx
@@ -185,32 +192,27 @@ export class InputManager {
       const movingDown = dy > IN.shortSwipeMinPx
                        && Math.abs(dy) > Math.abs(dx) * IN.verticalBias;
 
-      if (movingBack || movingDown) {
+      if (movingBack) {
+        a.blockFired = true;
+        this._blockHeld = true;
+        a.guardFromBack = true;          // remembered so release can decide
+        this._emit('BLOCK_DOWN', {});
+        this._showLabel('GUARD', true);
+      } else if (movingDown) {
         // Maintain a stillAnchor at the latest pointer position.
         // If the pointer has been within HOLD_LATCH_RADIUS_PX of the
         // anchor for HOLD_LATCH_MS, we latch the appropriate held event.
         if (!a.stillAnchor) {
-          a.stillAnchor = { x: p.x, y: p.y, t: now, kind: movingBack ? 'block' : 'crouch' };
+          a.stillAnchor = { x: p.x, y: p.y, t: now };
         } else {
           const ax = a.stillAnchor.x, ay = a.stillAnchor.y;
           if (Math.hypot(p.x - ax, p.y - ay) > HOLD_LATCH_RADIUS_PX) {
-            // Pointer drifted too far — start a fresh stationary timer
-            // at the new position, and update the kind in case the
-            // direction changed (e.g. switched from down to backward).
-            a.stillAnchor = { x: p.x, y: p.y, t: now,
-                              kind: movingBack ? 'block' : 'crouch' };
+            a.stillAnchor = { x: p.x, y: p.y, t: now };
           } else if (now - a.stillAnchor.t >= HOLD_LATCH_MS) {
-            if (a.stillAnchor.kind === 'block') {
-              a.blockFired = true;
-              this._blockHeld = true;
-              this._emit('BLOCK_DOWN', {});
-              this._showLabel('BLOCK', true);
-            } else {
-              a.crouchFired = true;
-              this._crouchHeld = true;
-              this._emit('CROUCH_DOWN', {});
-              this._showLabel('CROUCH', true);
-            }
+            a.crouchFired = true;
+            this._crouchHeld = true;
+            this._emit('CROUCH_DOWN', {});
+            this._showLabel('CROUCH', true);
           }
         }
       } else {
@@ -218,6 +220,21 @@ export class InputManager {
         a.stillAnchor = null;
       }
     }
+  }
+
+  /* Was the pointer still travelling when it lifted?
+   * Points are only appended on move, so a settled finger stops producing
+   * them — which is why we measure staleness against `now`, not the last
+   * sample's timestamp.  Miss that and a long hold reads as a fast swipe. */
+  _wasSwipe(a, now) {
+    const pts = a.points;
+    if (pts.length < 2) return false;
+    const last = pts[pts.length - 1];
+    if (now - last.t > IN.swipeRestMs) return false;      // finger had settled
+    let i = pts.length - 1;
+    while (i > 0 && last.t - pts[i].t < IN.swipeWindowMs) i--;
+    const p0 = pts[i];
+    return Math.hypot(last.x - p0.x, last.y - p0.y) >= IN.swipeReleaseMinPx;
   }
 
   _onUp(e) {
@@ -234,11 +251,19 @@ export class InputManager {
     // Snapshot the stroke so we can keep drawing it after release.
     this._lastStrokePts = a.points.slice();
 
-    // ---- Held variants release ----
+    // ---- Guard release: swipe -> dodge backstep, hold -> just drop the guard.
+    // We do NOT emit BLOCK_UP before DODGE: the Fighter drops the guard as part
+    // of starting the dodge, and emitting both would crossfade to idle and back
+    // inside a single frame for no reason.
     if (this._blockHeld) {
       this._blockHeld = false;
-      this._emit('BLOCK_UP', {});
-      this._showLabel('—');
+      if (a.guardFromBack && this._wasSwipe(a, now)) {
+        this._emit('DODGE', {});
+        this._showLabel('DODGE', true);
+      } else {
+        this._emit('BLOCK_UP', {});
+        this._showLabel('—');
+      }
       this.active = null;
       return;
     }

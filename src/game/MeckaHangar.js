@@ -12,6 +12,7 @@
  * Fighter builds only the 1–5 sets its loadout actually names.
  * ============================================================ */
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildMeckaKnightScene, SET_CATALOG } from './MeckaKnightProcedural.js';
 import {
   SLOTS, SLOT_IDS, RARITY, STATS, STAT_MAX,
@@ -25,12 +26,21 @@ const LS_KEY = 'mecka.hangar.v1';
  * glued to the joints: thin-mesh raycasting is miserable on a phone, so the
  * node stays put with a fat hitbox and a leader line does the pointing. */
 const NODE_POS = {
-  helmet: [0.50, 0.09],
-  armR:   [0.11, 0.40],   // character's right arm renders on SCREEN LEFT
-  armL:   [0.89, 0.40],
-  torso:  [0.11, 0.76],
-  legs:   [0.89, 0.76],
+  helmet: [0.50, 0.08],
+  armR:   [0.10, 0.38],   // character's right arm renders on SCREEN LEFT
+  armL:   [0.90, 0.38],
+  torso:  [0.10, 0.64],   // torso sits ABOVE legs, as it does on the body
+  legs:   [0.90, 0.88],
 };
+
+/* The visible envelope, measured across all 32 sets (tools/_tall):
+ *   tallest  MONARCH      h 2.03
+ *   widest   bare skeleton w 1.75  (T-pose arms, no pauldrons)
+ * Framing against a FIXED envelope rather than the current loadout means the
+ * camera never jerks as you browse — and because bulk scales with rarity, an
+ * EPIC genuinely reads bigger in frame than a COMMON.  That's a feature. */
+const ENVELOPE = { h: 2.10, w: 1.85 };
+const FILL = 0.88;          // envelope occupies this much of the viewport
 
 const SLOT_GLYPH = {
   helmet: 'M12 3 5 6v5c0 4 3 6.6 7 8 4-1.4 7-4 7-8V6z',
@@ -52,7 +62,10 @@ export function readHangarState() {
     if (raw && raw.loadout) {
       const valid = new Set(SET_CATALOG.map((s) => s.key));
       const lo = { ...DEFAULT_LOADOUT };
-      for (const s of SLOT_IDS) if (valid.has(raw.loadout[s])) lo[s] = raw.loadout[s];
+      for (const s of SLOT_IDS) {
+        const v = raw.loadout[s];
+        if (v === null || valid.has(v)) lo[s] = v;   // null = deliberately bare
+      }
       return { loadout: lo, eye: raw.eye ?? null };
     }
   } catch (e) { /* corrupt or blocked — fall through to defaults */ }
@@ -109,24 +122,42 @@ export class MeckaHangar {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Filmic response + a touch of exposure: without it the dark sets (KRAKEN,
+    // VOID, UMBRA) crush straight to black and you can't read the silhouette.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.25;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0a1730);
-    this.scene.fog = new THREE.Fog(0x0a1730, 9, 20);
+
+    // Image-based lighting.  This is the single biggest legibility win for
+    // MeshStandardMaterial — it fills the shadow side with bounced light
+    // instead of leaving it flat black.  Analytic lights alone can't do it.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
 
     this.camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
 
-    this.scene.add(new THREE.HemisphereLight(0x8fb6ff, 0x141c2e, 0.85));
-    const key = new THREE.DirectionalLight(0xffffff, 1.5);
+    this.scene.add(new THREE.HemisphereLight(0xc4dcff, 0x2c3a58, 1.15));
+    const key = new THREE.DirectionalLight(0xfff4e2, 2.4);
     key.position.set(3, 6, 5);
     key.castShadow = true;
     key.shadow.mapSize.set(1024, 1024);
     key.shadow.camera.top = 3; key.shadow.camera.bottom = -1;
     key.shadow.camera.left = -3; key.shadow.camera.right = 3;
     this.scene.add(key);
-    const fill = new THREE.DirectionalLight(0x5f8fd8, 0.5);
-    fill.position.set(-4, 2, 3);
+    const fill = new THREE.DirectionalLight(0x9fc4ff, 1.0);
+    fill.position.set(-4.5, 2.5, 3.5);
     this.scene.add(fill);
+    // Back rim — carves the silhouette off the background.  This is what makes
+    // a black KRAKEN readable rather than a hole in the screen.
+    const rim = new THREE.DirectionalLight(0xdcefff, 2.0);
+    rim.position.set(-1.5, 4, -6);
+    this.scene.add(rim);
+    const rim2 = new THREE.DirectionalLight(0xffd9a8, 1.2);
+    rim2.position.set(2.5, 3, -5);
+    this.scene.add(rim2);
 
     // Rarity flash rims — dark until a part is confirmed, then they pulse.
     this.rimL = new THREE.PointLight(0xffffff, 0, 12, 2);
@@ -170,7 +201,11 @@ export class MeckaHangar {
     this.scene.add(this.pivot);
     this.model = buildMeckaKnightScene({ equip: this.equipped });
     this.mecka = this.model.userData.mecka;
-    this.model.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    this.model.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = true; o.receiveShadow = true;
+      if (o.material && 'envMapIntensity' in o.material) o.material.envMapIntensity = 1.0;
+    });
     this.pivot.add(this.model);
     this._applyEye();
     this._frameModel();
@@ -200,22 +235,38 @@ export class MeckaHangar {
     };
   }
 
-  /* Fit the camera to whatever the model actually measures — the armature
-   * carries a 0.28 scale and every tier has its own bulk multiplier, so
-   * hard-coding a camera distance would drift the moment a set changes. */
+  /* Box3.setFromObject does NOT skip invisible meshes — and the Hangar has all
+   * 32 sets built and hidden.  Using it measured a 2.04-tall phantom instead of
+   * the 1.62 you can actually see, and shoved the camera 1.26x too far back.
+   * That was the "mecka is tiny" bug.  Measure only what renders. */
+  _visibleBox() {
+    this.model.updateMatrixWorld(true);
+    const box = new THREE.Box3(), tmp = new THREE.Box3();
+    this.model.traverse((o) => {
+      if (!o.isMesh || !o.visible || !o.geometry) return;
+      for (let p = o.parent; p; p = p.parent) if (!p.visible) return;
+      o.geometry.computeBoundingBox();
+      tmp.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+      box.union(tmp);
+    });
+    return box;
+  }
+
   _frameModel() {
-    const box = new THREE.Box3().setFromObject(this.model);
-    const size = box.getSize(new THREE.Vector3());
-    const centre = box.getCenter(new THREE.Vector3());
-    this.model.position.y -= box.min.y;          // stand it on the pedestal
-    const h = size.y;
-    const dist = (h * 1.28) / Math.tan((this.camera.fov * Math.PI) / 360);
-    this._camTarget = new THREE.Vector3(0, h * 0.52, 0);
-    this._camDist = dist;
-    this.camera.position.set(0, h * 0.60, dist);
+    const box = this._visibleBox();
+    this.model.position.y -= box.min.y;            // stand it on the pedestal
+    this._camTarget = new THREE.Vector3(0, ENVELOPE.h * 0.46, 0);   // headroom on top
+    this.camera.position.set(0, ENVELOPE.h * 0.50, 4);
     this.camera.lookAt(this._camTarget);
-    this._modelH = h;
-    void centre;
+  }
+
+  /* Distance that fits the envelope to whichever axis actually binds. */
+  _fitDistance(aspect) {
+    const fovV = (this.camera.fov * Math.PI) / 180;
+    const distV = (ENVELOPE.h / FILL / 2) / Math.tan(fovV / 2);
+    const fovH = 2 * Math.atan(Math.tan(fovV / 2) * aspect);
+    const distH = (ENVELOPE.w / FILL / 2) / Math.tan(fovH / 2);
+    return Math.max(distV, distH);
   }
 
   /* ---------------- anchor nodes ---------------- */
@@ -304,8 +355,10 @@ export class MeckaHangar {
     this.gridEl.addEventListener('click', (e) => {
       const card = e.target.closest('.part-card');
       if (!card) return;
-      if (this.mode === 'sets') this._previewSet(card.dataset.set);
-      else this._previewPart(card.dataset.set, card.dataset.slot);
+      // '__none__' is the unequip sentinel — the model's equip() takes null.
+      const key = card.dataset.set === '__none__' ? null : card.dataset.set;
+      if (this.mode === 'sets') this._previewSet(key);
+      else this._previewPart(key, card.dataset.slot);
     });
 
     // Eyes.
@@ -361,7 +414,7 @@ export class MeckaHangar {
   }
 
   _previewPart(setKey, slot) {
-    if (this.equipped[slot] === setKey && !this.preview) return;
+    if (this.equipped[slot] === setKey && !this.preview) return;   // null === null is fine
     this.preview = { kind: 'part', slot, setKey };
     this._applyLoadoutToModel(this._effectiveLoadout());
     this._render();
@@ -381,7 +434,9 @@ export class MeckaHangar {
 
   _confirm() {
     if (!this.preview) return;
-    const tier = this.sets.find((s) => s.key === this.preview.setKey)?.tier || 'common';
+    const tier = this.preview.setKey === null
+      ? 'common'
+      : (this.sets.find((s) => s.key === this.preview.setKey)?.tier || 'common');
     this.equipped = this._effectiveLoadout();
     this.preview = null;
     this._applyLoadoutToModel(this.equipped);
@@ -414,13 +469,16 @@ export class MeckaHangar {
     this._renderNodes();
 
     const p = this.preview;
-    const set = p ? this.sets.find((s) => s.key === p.setKey) : null;
+    const stripped = p && p.setKey === null;
+    const set = (p && !stripped) ? this.sets.find((s) => s.key === p.setKey) : null;
     this.confirmBtn.disabled = !p;
-    this.confirmBtn.textContent = p
-      ? (p.kind === 'set' ? `EQUIP ${set.label} SET` : `EQUIP ${set.label}`)
-      : 'CONFIRM LOADOUT';
+    if (!p) this.confirmBtn.textContent = 'CONFIRM LOADOUT';
+    else if (stripped) this.confirmBtn.textContent = p.kind === 'set' ? 'STRIP ALL ARMOR' : 'REMOVE PART';
+    else this.confirmBtn.textContent = p.kind === 'set' ? `EQUIP ${set.label} SET` : `EQUIP ${set.label}`;
     this.root.querySelector('#hangar-blurb').textContent =
-      set ? set.blurb : 'Tap a node to filter. Tap a part to preview.';
+      stripped ? 'Bare frame. Nothing between you and the floor.'
+      : set ? set.blurb
+      : 'Tap a node to filter. Tap a part to preview.';
   }
 
   _renderStats() {
@@ -454,8 +512,10 @@ export class MeckaHangar {
 
   _renderGrid() {
     const eff = this._effectiveLoadout();
+    const isSets = this.mode === 'sets';
+    const slot = this.activeSlot;
     let items;
-    if (this.mode === 'sets') {
+    if (isSets) {
       items = this.sets.map((s) => ({
         setKey: s.key, label: s.label, tier: s.tier, slot: '',
         on: SLOT_IDS.every((sl) => this.equipped[sl] === s.key),
@@ -463,7 +523,6 @@ export class MeckaHangar {
         glyph: SLOT_GLYPH.torso,
       }));
     } else {
-      const slot = this.activeSlot;
       items = this.parts.filter((p) => p.slot === slot).map((p) => ({
         setKey: p.setKey, label: p.setLabel, tier: p.tier, slot,
         on: this.equipped[slot] === p.setKey,
@@ -471,7 +530,21 @@ export class MeckaHangar {
         glyph: SLOT_GLYPH[slot],
       }));
     }
-    this.gridEl.innerHTML = items.map((i) => `
+    // Unequip lives at the head of the grid, where you'll actually find it.
+    const noneOn = isSets ? SLOT_IDS.every((sl) => this.equipped[sl] === null)
+                          : this.equipped[slot] === null;
+    const nonePrev = isSets ? (this.preview?.kind === 'set' && this.preview.setKey === null)
+                            : (this.preview?.kind !== 'set' && eff[slot] === null && this.equipped[slot] !== null);
+    const noneCard = `
+      <button class="part-card none${noneOn ? ' equipped' : ''}${nonePrev ? ' previewing' : ''}"
+              data-set="__none__" data-slot="${isSets ? '' : slot}">
+        <span class="card-art"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg></span>
+        <span class="card-name">${isSets ? 'STRIP ALL' : 'NONE'}</span>
+        <span class="card-tier"></span>
+        ${noneOn ? '<span class="card-flag">BARE</span>' : ''}
+      </button>`;
+
+    this.gridEl.innerHTML = noneCard + items.map((i) => `
       <button class="part-card${i.on ? ' equipped' : ''}${i.prev ? ' previewing' : ''}"
               data-set="${i.setKey}" data-slot="${i.slot}"
               style="--r:${RARITY[i.tier].color}">
@@ -507,8 +580,9 @@ export class MeckaHangar {
       const el = this.nodeEls[s.id];
       el.classList.toggle('active', this.activeSlot === s.id && this.mode === 'components');
       const eff = this._effectiveLoadout()[s.id];
-      const tier = this.sets.find((x) => x.key === eff)?.tier || 'common';
-      el.style.setProperty('--r', RARITY[tier].color);
+      el.classList.toggle('bare', eff === null);
+      const tier = eff === null ? null : this.sets.find((x) => x.key === eff)?.tier;
+      el.style.setProperty('--r', tier ? RARITY[tier].color : '#3a4a63');
     }
   }
 
@@ -555,12 +629,9 @@ export class MeckaHangar {
     if (!w || !h) return;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    // A 9:16 phone's top 40% is a WIDE box (~1.4:1).  Pull back on narrow
-    // aspects so a TITAN never clips its own pauldrons off-screen.
-    const fit = clamp(1.45 / this.camera.aspect, 1, 1.9);
-    this.camera.position.set(0, this._modelH * 0.60, this._camDist * fit);
-    this.camera.lookAt(this._camTarget);
     this.camera.updateProjectionMatrix();
+    this.camera.position.set(0, ENVELOPE.h * 0.50, this._fitDistance(this.camera.aspect));
+    this.camera.lookAt(this._camTarget);
     this.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
   }
 

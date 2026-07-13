@@ -211,6 +211,13 @@ export const CONFIG = {
     horizontalBias: 1.2,
     verticalBias: 1.2,
 
+    // Guard/dodge split.  The guard rises the instant you pull back; on
+    // RELEASE we ask "was the pointer still moving?" — if yes it was a swipe
+    // (dodge back), if it had settled it was a hold (shield in place).
+    swipeRestMs: 90,           // idle longer than this at release = a hold
+    swipeWindowMs: 90,         // look-back window for release velocity
+    swipeReleaseMinPx: 14,     // motion inside that window to count as a swipe
+
     trailFade: 0.08,
   },
 
