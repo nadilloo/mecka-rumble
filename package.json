@@ -2,5 +2,12 @@
   "name": "mecka-rumble",
   "private": true,
   "type": "module",
-  "devDependencies": { "three": "0.160.0", "jsdom": "^24.0.0" }
+  "scripts": {
+    "check": "eslint src tools && cd tools && node boot_check.mjs && node hangar_harness.mjs && node crouch_check.mjs"
+  },
+  "devDependencies": {
+    "three": "0.160.0",
+    "jsdom": "^24.0.0",
+    "eslint": "^9.0.0"
+  }
 }

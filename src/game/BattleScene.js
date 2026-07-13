@@ -3,6 +3,7 @@
    Larger arena, slightly richer lighting and backdrop.
    ============================================================ */
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CONFIG } from '../config.js';
 
 export class BattleScene {
@@ -23,9 +24,15 @@ export class BattleScene {
     // Image-based lighting: fills the shadow side with bounced light.  Without
     // it, a dark helmet in this arena is an unreadable silhouette.
     if (this.renderer) {
-      const pmrem = new THREE.PMREMGenerator(this.renderer);
-      this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-      pmrem.dispose();
+      try {
+        const pmrem = new THREE.PMREMGenerator(this.renderer);
+        this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        pmrem.dispose();
+      } catch (e) {
+        // IBL is a quality win, not a dependency.  If a device chokes on the
+        // PMREM bake, the fight still has to start.
+        console.warn('[BattleScene] environment map unavailable:', e);
+      }
     }
 
     this.scene.add(new THREE.AmbientLight(0x9aa8cc, 0.85));

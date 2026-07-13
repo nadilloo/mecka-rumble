@@ -19,6 +19,12 @@
 
   --stage-split: 40%;          /* flip this one number to retune the split */
 
+  /* Android Chrome's URL bar shrinks the VISIBLE viewport but `position:fixed;
+     inset:0` still sizes to the LARGE one — so the bottom row lands below the
+     fold.  dvh tracks the visible height instead. */
+  height: 100dvh;
+  max-height: 100dvh;
+
   /* NOTE: .screen already supplies position/inset/display/flex-direction and
      toggles visibility via .show — an #id rule here would out-specify that
      and pin the Hangar permanently on top of the menu.  Style only. */
@@ -112,9 +118,14 @@
 }
 
 
-.pad-cols { display: flex; gap: 7px; flex: 1 1 auto; min-height: 0; }
+/* flex-basis: 0 — NOT auto.  With `auto` the basis is the CONTENT height, and
+   the inventory grid's content is ~1200px of cards; the row then wins the
+   shrink fight and pushes the blurb and the action buttons off the screen.
+   Basis 0 means "take exactly what's left over", which is what we want. */
+.pad-cols { display: flex; gap: 7px; flex: 1 1 0%; min-height: 0; }
 .pad-left  { flex: 0 0 41%; display: flex; flex-direction: column; gap: 7px; min-height: 0; }
-.pad-right { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.pad-right { flex: 1 1 0%; display: flex; flex-direction: column; min-height: 0; }
+#hangar-stats, #hangar-eyes { flex: 0 0 auto; }
 
 .panel {
   background: linear-gradient(180deg, var(--panel-hi), var(--panel));
@@ -173,28 +184,9 @@
   font: 700 10px/1 'Chakra Petch', sans-serif; letter-spacing: .12em;
   color: var(--ink-dim); margin-bottom: 6px;
 }
-.eye-brand {
-  font: 600 9px/1 'Share Tech Mono', monospace; letter-spacing: .05em;
-  padding: 3px 6px; border-radius: 3px; cursor: pointer;
-  background: #0a1a36; color: var(--ink-dim); border: 1px solid var(--hair);
-}
-.eye-brand.on { color: var(--cyan); border-color: var(--cyan); }
-.eye-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
-.eye-sw {
-  --e: #fff;
-  aspect-ratio: 1; min-height: 26px; border-radius: 5px; cursor: pointer; padding: 0;
-  background: radial-gradient(circle at 50% 38%, #fff 0%, var(--e) 42%,
-              color-mix(in srgb, var(--e) 45%, #000) 100%);
-  border: 1px solid #08152b;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--e) 60%, transparent);
-}
 .eye-sw.on { border: 2px solid #fff; box-shadow: 0 0 12px var(--e); }
 .eye-foot {
-  display: flex; align-items: center; justify-content: space-between; margin-top: 6px;
-}
-.eye-more {
-  font: 600 9px/1 'Share Tech Mono', monospace; padding: 3px 6px; cursor: pointer;
-  background: #0a1a36; color: var(--cyan); border: 1px solid var(--hair); border-radius: 3px;
+  display: flex; align-items: center; justify-content: center; margin-top: 7px;
 }
 .eye-pips { display: flex; gap: 3px; }
 .eye-pip {
@@ -217,7 +209,7 @@
 }
 
 #hangar-grid {
-  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  flex: 1 1 0%; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
   padding: 7px; border-radius: 6px;
@@ -263,13 +255,15 @@
 @keyframes card-pulse { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 
 #hangar-blurb {
+  flex: 0 0 auto;
   font: 400 10px/1.25 'Share Tech Mono', monospace;
   color: var(--ink-dim); text-align: center; min-height: 13px;
   padding: 0 4px;
 }
 
 /* ---- actions ---- */
-.hangar-actions { display: flex; gap: 6px; align-items: stretch; }
+/* Never shrink, never get pushed out. These are the only way off this screen. */
+.hangar-actions { flex: 0 0 auto; display: flex; gap: 6px; align-items: stretch; }
 .hangar-actions button {
   cursor: pointer; border-radius: 6px; padding: 11px 6px;
   font: 700 12px/1 'Chakra Petch', sans-serif; letter-spacing: .06em; color: #fff;

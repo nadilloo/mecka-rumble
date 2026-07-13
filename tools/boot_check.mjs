@@ -71,7 +71,9 @@ ok($('.hangar-node').length === 5, `5 anchor nodes rendered (${$('.hangar-node')
 ok($('.stat-row').length === 3,    `3 stat bars rendered (${$('.stat-row').length})`);
 ok($('.part-card').length === 33,  `inventory: 32 helmets + NONE card (${$('.part-card').length})`);
 ok($('.part-card.none').length === 1, `unequip card is present`);
-ok($('.eye-sw').length === 8,      `eye picker is a 2x4 grid (${$('.eye-sw').length})`);
+ok($('.eye-sw').length === 16,     `all 16 optics shown, no expander (${$('.eye-sw').length})`);
+ok($('[data-eye-brand]').length === 0 && $('[data-eye-more]').length === 0,
+   `SET DEFAULT and +8 MORE are gone`);
 
 /* ---- 4. drive the actual flow: filter -> preview -> confirm ---- */
 $('.hangar-node')[4].dispatchEvent(new window.Event('click', { bubbles: true }));   // LEGS
@@ -132,7 +134,16 @@ const crawl = { points: [] };
 for (let t = 0; t <= 600; t += 60) crawl.points.push({ x: 200 - t * 0.09, y: 100, t });
 ok(wasSwipe.call({}, crawl, 605) === false, `slow crawl-back is a HOLD, not a dodge`);
 
-/* ---- 7. held vs one-shot clips: a dodge must not freeze the guard up ---- */
+/* ---- 7. the battle path must at least CONSTRUCT.
+       A missing import here is what stopped BATTLE from starting: node --check
+       passed it, and nothing else ever built this class. ---- */
+const { BattleScene } = await import('../src/game/BattleScene.js');
+let bsErr = null, bs = null;
+try { bs = new BattleScene(null); } catch (e) { bsErr = e; }
+ok(!bsErr, `new BattleScene() constructs ${bsErr ? '-> ' + bsErr.message : ''}`);
+ok(bs && bs.scene.children.some(o => o.isLight), `arena has lights`);
+
+/* ---- 8. held vs one-shot clips: a dodge must not freeze the guard up ---- */
 const { AnimationController } = await import('../src/game/AnimationController.js');
 const mkClip = (name, dur) => new THREE.AnimationClip(name, dur, [
   new THREE.QuaternionKeyframeTrack('mixamorigHips.quaternion',

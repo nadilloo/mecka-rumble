@@ -26,7 +26,7 @@ const LS_KEY = 'mecka.hangar.v1';
  * glued to the joints: thin-mesh raycasting is miserable on a phone, so the
  * node stays put with a fat hitbox and a leader line does the pointing. */
 const NODE_POS = {
-  helmet: [0.50, 0.08],
+  helmet: [0.73, 0.09],   // offset right: crests and horns own the centre
   armR:   [0.10, 0.38],   // character's right arm renders on SCREEN LEFT
   armL:   [0.90, 0.38],
   torso:  [0.10, 0.64],   // torso sits ABOVE legs, as it does on the body
@@ -69,7 +69,7 @@ export function readHangarState() {
       return { loadout: lo, eye: raw.eye ?? null };
     }
   } catch (e) { /* corrupt or blocked — fall through to defaults */ }
-  return { loadout: { ...DEFAULT_LOADOUT }, eye: { hex: '#8ee9ff', level: 2 } };
+  return { loadout: { ...DEFAULT_LOADOUT }, eye: { hex: '#c9d2dd', level: 2 } };   // WHITE
 }
 
 export class MeckaHangar {
@@ -92,7 +92,6 @@ export class MeckaHangar {
     this.preview = null;                      // {kind:'part'|'set', slot?, setKey}
     this.activeSlot = 'helmet';
     this.mode = 'components';                 // 'components' | 'sets'
-    this.eyeExpanded = false;
 
     this._running = false;
     this._changeCb = null;
@@ -364,10 +363,6 @@ export class MeckaHangar {
     // Eyes.
     this.eyeEl = this.root.querySelector('#hangar-eyes');
     this.eyeEl.addEventListener('click', (e) => {
-      const more = e.target.closest('[data-eye-more]');
-      if (more) { this.eyeExpanded = !this.eyeExpanded; this._renderEyes(); return; }
-      const brand = e.target.closest('[data-eye-brand]');
-      if (brand) { this.eye = null; this._applyEye(); this._save(); this._renderEyes(); return; }
       const sw = e.target.closest('[data-eye-hex]');
       if (sw) {
         this.eye = { hex: sw.dataset.eyeHex, level: this.eye ? this.eye.level : 2 };
@@ -375,7 +370,7 @@ export class MeckaHangar {
       }
       const pip = e.target.closest('[data-eye-level]');
       if (pip) {
-        const hex = this.eye ? this.eye.hex : EYE_PRIMARY[1][1];
+        const hex = this.eye ? this.eye.hex : EYE_PRIMARY[0][1];   // WHITE
         this.eye = { hex, level: +pip.dataset.eyeLevel };
         this._applyEye(); this._save(); this._renderEyes();
       }
@@ -556,23 +551,18 @@ export class MeckaHangar {
   }
 
   _renderEyes() {
-    const list = this.eyeExpanded ? EYE_PRIMARY.concat(EYE_EXTRA) : EYE_PRIMARY;
-    const sw = list.map(([name, hex]) => `
+    // All sixteen, always.  WHITE is simply the first swatch and the default —
+    // there is no separate "restore branded eyes" state to explain.
+    const sw = EYE_PRIMARY.concat(EYE_EXTRA).map(([name, hex]) => `
       <button class="eye-sw${this.eye?.hex === hex ? ' on' : ''}" data-eye-hex="${hex}"
               style="--e:${hex}" title="${name}" aria-label="${name}"></button>`).join('');
     const pips = [0, 1, 2, 3, 4].map((l) => `
       <button class="eye-pip${this.eye?.level === l ? ' on' : ''}" data-eye-level="${l}"
               aria-label="Brightness ${l + 1}"></button>`).join('');
     this.eyeEl.innerHTML = `
-      <div class="eye-head">
-        <span>OPTICS</span>
-        <button class="eye-brand${this.eye ? '' : ' on'}" data-eye-brand>SET DEFAULT</button>
-      </div>
+      <div class="eye-head"><span>OPTICS</span></div>
       <div class="eye-grid">${sw}</div>
-      <div class="eye-foot">
-        <button class="eye-more" data-eye-more>${this.eyeExpanded ? '− LESS' : '+8 MORE'}</button>
-        <div class="eye-pips">${pips}</div>
-      </div>`;
+      <div class="eye-foot"><div class="eye-pips">${pips}</div></div>`;
   }
 
   _renderNodes() {
