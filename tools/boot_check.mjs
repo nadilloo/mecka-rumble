@@ -95,6 +95,26 @@ ok(fired && fired.legs === 'titan', `onChange fires so App writes CONFIG.mecka.p
 ok(JSON.parse(window.localStorage.getItem('mecka.hangar.v1')).loadout.legs === 'titan',
    `loadout persisted to localStorage`);
 
+/* ---- 4b. CSS CONTRACT.
+       Every class the Hangar actually renders must have a rule in hangar.css.
+       Twice now a regex meant to delete one block has eaten the next one --
+       .hangar-pad and .eye-grid both vanished silently, and the only symptom
+       was a screenshot. Walk the live DOM and check. ---- */
+const css = fs.readFileSync(new URL('../src/ui/hangar.css', import.meta.url), 'utf8');
+const used = new Set();
+window.document.getElementById('hangar-screen')
+  .querySelectorAll('*').forEach(el => el.classList.forEach(c => used.add(c)));
+// Layout-critical classes carry the whole screen; a missing rule is fatal, not cosmetic.
+const CRITICAL = ['hangar-pad', 'pad-cols', 'pad-left', 'pad-right',
+                  'hangar-actions', 'eye-grid', 'eye-sw', 'part-card', 'hangar-node',
+                  'stat-row', 'stat-track', 'stat-fill', 'card-art', 'card-name'];
+const missing = [...used].filter(c => !new RegExp(`\\.${c}[\\s,{.:>]`).test(css));
+const missingCritical = CRITICAL.filter(c => !new RegExp(`\\.${c}[\\s,{.:>]`).test(css));
+ok(missingCritical.length === 0,
+   `every layout-critical class has a CSS rule (${missingCritical.join(',') || 'all present'})`);
+ok(missing.length === 0,
+   `no rendered class is unstyled (${missing.join(',') || 'clean'})`);
+
 /* ---- 5. unequip -> bare skeleton ---- */
 $('.part-card.none')[0].dispatchEvent(new window.Event('click', { bubbles: true }));
 ok(hangar.mecka.getEquipped('legs') === null, `NONE strips the legs on the model`);

@@ -78,6 +78,10 @@ export class Fighter {
     // freeze simultaneously.
     this.hitStopTime = 0;
 
+    // One-deep punch buffer.  A punch thrown while another is still swinging
+    // waits here and fires the frame that swing ends — see _attack().
+    this._queuedAttack = null;
+
     // Pushback velocity — applied to root.position.x with damping.
     // Set when the fighter is hit, blocks, or hits an opponent at
     // the corner (corner pushback reverses onto the attacker).
@@ -386,10 +390,33 @@ export class Fighter {
   }
 
   /* ---------------- Action API ---------------- */
-  jab()      { if (this.crouching) return false; return this.canAct(ACT.jab.cost)      && this._startAction('jab'); }
-  hook()     { if (this.crouching) return false; return this.canAct(ACT.hook.cost)     && this._startAction('hook'); }
-  cross()    { if (this.crouching) return false; return this.canAct(ACT.cross.cost)    && this._startAction('cross'); }
-  uppercut() { if (this.crouching) return false; return this.canAct(ACT.uppercut.cost) && this._startAction('uppercut'); }
+
+  /* Punches no longer cancel each other.
+   *
+   * They used to: canAct() lets a new action start during the RECOVERY phase,
+   * so a second tap cut the first swing short and restarted the clip.  A
+   * jab -> hook -> jab combo therefore read as three stutters rather than
+   * three punches.
+   *
+   * Now a punch thrown mid-swing is BUFFERED and fires the instant the current
+   * one finishes, so every animation plays out and the chain still feels
+   * responsive to mash.  One deep, and the latest input wins — that way tapping
+   * jab then swiping hook gives you the hook, not a queue of stale jabs.
+   *
+   * Defensive options (dodge, dash, shield) still cancel recovery.  Being able
+   * to bail out of a whiffed punch is the point of them. */
+  _attack(name) {
+    if (this.crouching) return false;
+    if (this.isKO() || this.lockoutTime > 0 || this.stunTime > 0) return false;
+    if (this.hitstunTime > 0 || this.blockstunTime > 0) return false;
+    if (this.action) { this._queuedAttack = name; return true; }   // let it finish
+    return this.canAct(ACT[name].cost) && this._startAction(name);
+  }
+
+  jab()      { return this._attack('jab'); }
+  hook()     { return this._attack('hook'); }
+  cross()    { return this._attack('cross'); }
+  uppercut() { return this._attack('uppercut'); }
 
   shoot() {
     // Regular shot was removed — taps now fire jabs (handled by App
@@ -553,6 +580,10 @@ export class Fighter {
     // Apply stun.  Use frame data if present, else a short fallback.
     const hitStunFrames   = ad.hitStun   ?? 14;
     const blockStunFrames = ad.blockStun ?? 8;
+
+    // Whatever you had buffered dies with the interruption — a punch you
+    // queued before eating a hook must not fire on its own coming out of stun.
+    this._queuedAttack = null;
 
     if (blocked) {
       this.blockstunTime = Math.max(this.blockstunTime, blockStunFrames * FRAME);
@@ -776,18 +807,31 @@ export class Fighter {
       }
 
       // Action ended.
-      if (this.action && this.action.elapsedFrames >= this.action.total) {
+      // A buffered punch is released `linkWindowFrames` early — never before
+      // recovery has actually begun, so the punch always lands and retracts.
+      const link = this._queuedAttack
+        ? Math.min(C.linkWindowFrames || 0, Math.max(0, this.action.recovery - 1))
+        : 0;
+
+      if (this.action && this.action.elapsedFrames >= this.action.total - link) {
+        const queued = this._queuedAttack;
+        this._queuedAttack = null;
+        this.action = null;
         // Hit reaction & ko don't auto-return through here (ko stays).
         if (this.state !== 'ko') {
           this.state = 'idle';
-          // An action that BORROWS a held clip won't auto-return on its own:
-          // the controller treats `shield` as terminal and clamps it, so a
-          // dodge (which wears the shield pose) would freeze the guard up
-          // forever.  Release it explicitly.  No-op for ordinary one-shots,
-          // which have already faded themselves back to idle by now.
-          if (!this.shielding && !this.crouching) this.anim.stop();
+          if (queued && this.canAct(ACT[queued].cost)) {
+            // Straight into the next swing — no fade to idle in between.
+            this._startAction(queued);
+          } else if (!this.shielding && !this.crouching) {
+            // An action that BORROWS a held clip won't auto-return on its own:
+            // the controller treats `shield` as terminal and clamps it, so a
+            // dodge (which wears the shield pose) would freeze the guard up
+            // forever.  Release it explicitly.  No-op for ordinary one-shots,
+            // which have already faded themselves back to idle by now.
+            this.anim.stop();
+          }
         }
-        this.action = null;
       }
     }
 

@@ -26,11 +26,11 @@ const LS_KEY = 'mecka.hangar.v1';
  * glued to the joints: thin-mesh raycasting is miserable on a phone, so the
  * node stays put with a fat hitbox and a leader line does the pointing. */
 const NODE_POS = {
-  helmet: [0.73, 0.09],   // offset right: crests and horns own the centre
+  helmet: [0.74, 0.15],   // offset right and down: crests and horns own the centre
   armR:   [0.10, 0.38],   // character's right arm renders on SCREEN LEFT
   armL:   [0.90, 0.38],
   torso:  [0.10, 0.64],   // torso sits ABOVE legs, as it does on the body
-  legs:   [0.90, 0.88],
+  legs:   [0.82, 0.78],
 };
 
 /* The visible envelope, measured across all 32 sets (tools/_tall):

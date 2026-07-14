@@ -122,6 +122,19 @@
    the inventory grid's content is ~1200px of cards; the row then wins the
    shrink fight and pushes the blurb and the action buttons off the screen.
    Basis 0 means "take exactly what's left over", which is what we want. */
+/* ============ DATAPAD (bottom 60%) ============ */
+.hangar-pad {
+  /* basis 0, not auto: the inventory grid's content is ~1200px of cards, and
+     with `auto` that content height becomes the basis and shoves the action
+     row off the bottom of the screen. */
+  flex: 1 1 0%; min-height: 0;
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 8px 8px 10px;
+  background: linear-gradient(180deg, #0f1d3c 0%, #091428 100%);
+  border-top: 2px solid var(--bevel);
+  box-shadow: inset 0 2px 0 rgba(120,180,255,.18);
+}
+
 .pad-cols { display: flex; gap: 7px; flex: 1 1 0%; min-height: 0; }
 .pad-left  { flex: 0 0 41%; display: flex; flex-direction: column; gap: 7px; min-height: 0; }
 .pad-right { flex: 1 1 0%; display: flex; flex-direction: column; min-height: 0; }
@@ -183,6 +196,16 @@
   display: flex; align-items: center; justify-content: space-between;
   font: 700 10px/1 'Chakra Petch', sans-serif; letter-spacing: .12em;
   color: var(--ink-dim); margin-bottom: 6px;
+}
+.eye-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.eye-sw {
+  --e: #fff;
+  aspect-ratio: 1; min-height: 22px; max-height: 40px;   /* 16 swatches must fit */
+  border-radius: 5px; cursor: pointer; padding: 0;
+  background: radial-gradient(circle at 50% 38%, #fff 0%, var(--e) 42%,
+              color-mix(in srgb, var(--e) 45%, #000) 100%);
+  border: 1px solid #08152b;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--e) 60%, transparent);
 }
 .eye-sw.on { border: 2px solid #fff; box-shadow: 0 0 12px var(--e); }
 .eye-foot {

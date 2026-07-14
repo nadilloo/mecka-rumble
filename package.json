@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "eslint src tools && cd tools && node boot_check.mjs && node hangar_harness.mjs && node crouch_check.mjs"
+    "check": "eslint src tools && cd tools && node boot_check.mjs && node hangar_harness.mjs && node crouch_check.mjs && node combat_check.mjs"
   },
   "devDependencies": {
     "three": "0.160.0",

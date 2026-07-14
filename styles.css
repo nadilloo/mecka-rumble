@@ -28,7 +28,7 @@ html, body {
 /* ---------- Combat viewport (top 60%) ---------- */
 #combat {
   position: relative;
-  flex: 0 0 60%;
+  flex: 0 0 55%;
   width: 100%;
   background:
     radial-gradient(ellipse at 50% 25%, #2a1d4a 0%, #110a26 55%, #05050a 100%);
@@ -103,7 +103,7 @@ html, body {
 /* ---------- Input panel (bottom 40%) ---------- */
 #input-panel {
   position: relative;
-  flex: 0 0 40%; width: 100%;
+  flex: 0 0 45%; width: 100%;
   background: linear-gradient(180deg, #0e0e1f 0%, #060611 100%);
   border-top: 1px solid rgba(120, 200, 255, 0.15);
   overflow: hidden;

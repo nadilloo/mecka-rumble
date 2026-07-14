@@ -115,6 +115,19 @@ export const CONFIG = {
     // ---- Combo scaling ----
     // Multiplier applied to damage based on hit count of an ongoing combo.
     // Hit 1 = 100%, hit 2 = 80%, etc.  Past index 4, the cap (0.50) holds.
+    // Punches BUFFER rather than cancel (see Fighter._attack).  A queued punch
+    // is released this many frames before the current one fully ends.
+    //
+    //   0 = the swing plays 100% through.  Looks cleanest, but jab -> hook
+    //       drops by 2 frames and stops comboing entirely.
+    //   3 = the swing plays 79-93% through (fully extended, connected, and
+    //       most of the way retracted) AND jab -> hook -> jab still links.
+    //
+    // Measured, not guessed — the old behaviour let a punch cancel from the
+    // FIRST recovery frame, i.e. a jab could be cut at 43% and restarted.
+    // That is the stutter.
+    linkWindowFrames: 3,
+
     comboScaling: [1.00, 0.80, 0.65, 0.55, 0.50],
 
     // ---- Hit-stop ----
