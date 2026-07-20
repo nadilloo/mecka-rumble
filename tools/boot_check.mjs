@@ -23,6 +23,7 @@ globalThis.window.matchMedia ??= () => ({ matches: false, addListener(){}, remov
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.log('  FAIL ' + m); fails++; } else console.log('  ok   ' + m); };
 
+const { CONFIG } = await import('../src/config.js');
 const { UIManager } = await import('../src/ui/UIManager.js');
 const { MeckaHangar } = await import('../src/game/MeckaHangar.js');
 const { buildMeckaKnightScene } = await import('../src/game/MeckaKnightProcedural.js');
@@ -42,6 +43,10 @@ for (const name of ['menu', 'hangar', 'battle']) {
   ok(s.length === 1 && s[0] === `${name}-screen`,
      `showScreen('${name}') shows exactly #${name}-screen  [got: ${s.join(',') || 'NOTHING'}]`);
 }
+
+/* ---- 2b. the version stamp: bottom-left, sourced from CONFIG only ---- */
+ok(window.document.getElementById('build-version').textContent === CONFIG.version,
+   `#build-version stamped '${CONFIG.version}' by UIManager`);
 
 /* ---- 3. the Hangar, with only the GPU stubbed ---- */
 class TestHangar extends MeckaHangar {
@@ -135,7 +140,6 @@ ok(true, `final loadout: ${mixed}`);
 
 /* ---- 6. guard/dodge: swipe vs hold ---- */
 const { InputManager } = await import('../src/input/InputManager.js');
-const { CONFIG } = await import('../src/config.js');
 const wasSwipe = InputManager.prototype._wasSwipe;
 const IN = CONFIG.input;
 

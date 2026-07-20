@@ -8,6 +8,12 @@
    ============================================================ */
 
 export const CONFIG = {
+  /* -------- Build version --------
+     Single source of truth.  UIManager stamps it bottom-left on every
+     screen; the milestone zip is named to match (mecka-rumble-<v>.zip,
+     lowercased).  Bump on every shipped build. */
+  version: 'M1.0',
+
   /* -------- Debug / dev flags -------- */
   debug: {
     showOverlay: true,
@@ -210,6 +216,20 @@ export const CONFIG = {
       blockChance: 0.30, blockDur: 0.55,
       dodgeLowHp: 0.35, lowHpFrac: 0.30,
       standoffFrac: 0.85,          // approach to punchRange * this
+    },
+
+    // M1 battle-screen presentation knobs.  enemySet is the single
+    // 1v1 opponent until M3 brings squads and M4 brings the campaign.
+    // MAGMA measured 72-88s vs the default SENTINEL loadout with real
+    // stakes (2/5 seeds lose) — the Hangar is the answer to losing.
+    screen: {
+      enemySet: 'red',
+      endDelaySec: 2.4,            // KO clip / celebration before the modal
+      leanPerSpeed: 0.030,         // hover-slide: rad of body lean per unit/s
+      leanMax: 0.16, leanDamp: 10,
+      thrusterFull: 6.0,           // |vx| at which thrusters hit full glow
+      thrusterDamp: 8,
+      sparkInterval: 0.12,         // malfunction spark cadence
     },
 
     // D2 stat-triangle (LOCKED, but wired OFF for M0 — the class fn is
