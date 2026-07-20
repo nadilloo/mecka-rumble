@@ -161,6 +161,64 @@ export const CONFIG = {
     emptyLockoutSeconds: 2.0,
   },
 
+  /* -------- Team battles (RPG pivot, M0) --------
+     Knobs for the headless TeamBattle core.  The Fighter sim keeps its
+     1v1 frame data; this block shapes the wrapper: N-v-N pacing, the
+     super gauge, waves, and the malfunction (mecha stun) status.
+     Numbers here were MEASURED against tools/battle_check.mjs — the
+     canonical 2-uncommons-vs-3-waves battle must land >= 120 s. */
+  team: {
+    maxSlots: 4,                 // per side, hard cap (D6 point 1)
+    timeoutSec: 300,             // stalemate guard; winner by hpFrac sum
+    interWaveDelaySec: 1.4,      // breather between cleared wave and next spawn
+    engageStaggerSec: 0.35,      // initiative: rank N enters N*this after spawn
+
+    // Statline -> sim-multiplier anchor.  A neutral-tilt UNCOMMON set
+    // (the SENTINEL-class baseline every player starts at) maps to 1.0x
+    // on all three axes.  power/ref = damage out; ref/armor = damage in;
+    // speed/ref = move speed, decision cadence, and initiative rank.
+    refStats: { speed: 54, armor: 74, power: 67 },
+
+    // HP pools.  RPG-scale: armour feeds the pool as well as mitigation.
+    baseHp: 200,
+    hpPerArmor: 2.6,
+
+    // Super gauge — fills from damage BOTH ways (dealt and taken; taken
+    // fills faster, the genre's comeback lever).  Full gauge = the auto
+    // brain fires the super action.
+    gauge: { max: 100, perDamageDealt: 0.55, perDamageTaken: 0.85 },
+
+    // The super itself: resolved as a direct heavy strike through
+    // takeHit('super') so the existing frame data (hitStun 28,
+    // pushback 1.6) applies.  Damage is pre-power-multiplier.
+    super: { damage: 30, malfStress: 15 },
+
+    // Malfunction — the mecha stun (D6 point 8).  Damage taken builds
+    // hidden stress; crossing the threshold trips the breaker: the unit
+    // locks for `duration`, sparks (M1 FX), then gets an immunity window
+    // so it can't be chain-tripped.  Supers add bonus stress on hit.
+    malfunction: {
+      threshold: 50, stressPerDamage: 0.80,
+      duration: 1.1, decayPerSec: 4, immunitySec: 5,
+    },
+
+    // Auto-brain pacing.  Interval is divided by the unit's speed
+    // multiplier — SPEED literally is attack cadence.
+    brain: {
+      baseInterval: 0.38, jitter: 0.14,
+      aggression: 0.62,            // chance an in-range decision is an attack
+      blockChance: 0.30, blockDur: 0.55,
+      dodgeLowHp: 0.35, lowHpFrac: 0.30,
+      standoffFrac: 0.85,          // approach to punchRange * this
+    },
+
+    // D2 stat-triangle (LOCKED, but wired OFF for M0 — the class fn is
+    // built and tested; the damage edge switches on when glyph UI lands
+    // in M3 so pacing and presentation arrive together).
+    // POWER breaks ARMOR, ARMOR walls SPEED, SPEED outruns POWER.
+    counterTriangle: { enabled: false, edge: 0.22, dominance: 0.40 },
+  },
+
   /* -------- Damage -------- */
   damage: {
     // Per-action damage values live in fighter.actions.*.damage.

@@ -45,7 +45,13 @@ export class Fighter {
 
     // ---- Loadout & derived stats ----
     this.loadout = opts.loadout || { ...CONFIG.defaultLoadout };
-    this.stats = this._computeStats(this.loadout);
+    // TeamBattle (RPG pivot) passes a pre-computed multiplier set derived
+    // from the Hangar statline; the 1v1 game keeps deriving from the old
+    // Jammo workshop parts.  Same shape either way: {power, armor, speed}.
+    this.stats = opts.stats || this._computeStats(this.loadout);
+    // TeamBattle also dresses each unit in its own armour set / loadout
+    // instead of the global CONFIG.mecka pair — see _buildMesh.
+    this._meckaEquip = opts.meckaEquip;
 
     // ---- Combat state ----
     this.state = 'idle';
@@ -87,7 +93,8 @@ export class Fighter {
     // the corner (corner pushback reverses onto the attacker).
     this.pushbackVel = 0;
 
-    this.hp = C.healthMax;
+    this.hpMax = opts.hpMax || C.healthMax;
+    this.hp = this.hpMax;
     this.battery = C.batteryMax;
     this.facing = this.side > 0 ? -1 : 1;
 
@@ -143,7 +150,8 @@ export class Fighter {
     // the CPU still wears one uniform set (a string -> equipAll).  Either
     // way we only build the sets that loadout actually names.
     const meckaEquip = pack.procedural
-      ? (this.isPlayer ? CONFIG.mecka.playerLoadout : CONFIG.mecka.cpuSet)
+      ? (this._meckaEquip ?? (this.isPlayer ? CONFIG.mecka.playerLoadout
+                                            : CONFIG.mecka.cpuSet))
       : null;
     const meckaSets = typeof meckaEquip === 'string'
       ? [meckaEquip]
@@ -310,8 +318,15 @@ export class Fighter {
     }
   }
 
+  /** Set the walk-toward point (clamped to the lane).  The auto-battler
+   *  brain steers with this every frame; the 1v1 game keeps using
+   *  dash/dodge which write the same field. */
+  setMoveTarget(x) {
+    this._moveTarget = clamp(x, -STAGE.laneHalfWidth, STAGE.laneHalfWidth);
+  }
+
   /* ---------------- Stat helpers ---------------- */
-  hpFrac()  { return clamp(this.hp / C.healthMax, 0, 1); }
+  hpFrac()  { return clamp(this.hp / this.hpMax, 0, 1); }
   batFrac() { return clamp(this.battery / C.batteryMax, 0, 1); }
   isKO()    { return this.state === 'ko'; }
   isShielding() { return this.shielding; }
