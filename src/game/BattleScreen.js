@@ -27,6 +27,7 @@ import { TeamBattle } from './TeamBattle.js';
 import { BattleScene } from './BattleScene.js';
 import { BrawlCamera } from './BrawlCamera.js';
 import { RangedVolley } from './RangedVolley.js';
+import { ArenaOverlay } from './ArenaOverlay.js';
 
 const FRAME = 1 / 60;
 const S = () => CONFIG.team.screen;
@@ -58,9 +59,14 @@ export class BattleScreen {
       seed: opts.seed ?? 1,
       assets: opts.assets,
       overrides: opts.overrides,
-      playerTeam: opts.playerTeam ||
-        [{ name: 'MECKA', loadout: { ...CONFIG.mecka.playerLoadout } }],
-      waves: opts.waves || [[{ set: S().enemySet }]],
+      playerTeam: opts.playerTeam || [
+        { name: 'MECKA', loadout: { ...CONFIG.mecka.playerLoadout } },
+        { name: S().allySet.toUpperCase(), set: S().allySet, role: 'ranged' },
+      ],
+      waves: opts.waves || [[
+        { set: S().enemySet },
+        { set: S().enemyRangedSet, role: 'ranged' },
+      ]],
     });
 
     // ---- 3D side ----
@@ -68,6 +74,7 @@ export class BattleScreen {
     this.scene3 = this.scene.scene;
     this.cam = new BrawlCamera(opts.aspect || 0.5);
     this.volleys = new RangedVolley(this.scene3);
+    this.overlay = new ArenaOverlay(opts.overlayEl || null, this.cam.camera);
 
     // ---- Per-unit presentation state ----
     this.vis = new Map();
@@ -146,27 +153,11 @@ export class BattleScreen {
   _buildConsole() {
     const el = this.consoleEl;
     if (!el) return;
+    // M3: the unit cards moved into the arena (ArenaOverlay).  The
+    // console keeps only its INPUTS — the wave label and speed toggle —
+    // and the bottom strip stays clear for future controls.
     this.waveEl = el.querySelector('#console-wave');
     this.speedBtn = el.querySelector('#console-speed');
-    const cardsEl = el.querySelector('#console-cards');
-    cardsEl.innerHTML = '';
-    this.cards = new Map();
-
-    for (const u of this.battle.units) {
-      const card = document.createElement('div');
-      card.className = `ucard side-${u.side}`;
-      card.id = `ucard-${u.id}`;
-      card.innerHTML =
-        `<div class="ucard-name">${u.name}</div>` +
-        `<div class="ubar hp"><div class="fill"></div></div>` +
-        `<div class="ubar gauge"><div class="fill"></div></div>`;
-      cardsEl.appendChild(card);
-      this.cards.set(u.id, {
-        card,
-        hp: card.querySelector('.ubar.hp .fill'),
-        gauge: card.querySelector('.ubar.gauge .fill'),
-      });
-    }
 
     if (this.speedBtn) {
       this._onSpeedClick = () => {
@@ -183,17 +174,6 @@ export class BattleScreen {
     if (this.waveEl) {
       const w = Math.min(this.battle._nextWave, this.battle.waves.length);
       this.waveEl.textContent = `WAVE ${w}/${this.battle.waves.length}`;
-    }
-    for (const u of this.battle.units) {
-      const c = this.cards.get(u.id);
-      if (!c) continue;
-      c.hp.style.width = (u.fighter.hpFrac() * 100) + '%';
-      c.gauge.style.width = (clamp(u.gauge / CONFIG.team.gauge.max, 0, 1) * 100) + '%';
-      c.card.classList.toggle('dead', u.dead);
-      c.card.classList.toggle('malf',
-        this._wallT < (this.vis.get(u.id)?.malfUntil ?? -1));
-      c.card.classList.toggle('full',
-        !u.dead && u.gauge >= CONFIG.team.gauge.max - 0.001);
     }
   }
 
@@ -271,6 +251,7 @@ export class BattleScreen {
     this._updateSparks(dt);
     this.volleys.update(dt * this.speed);
     this.cam.update(dt, this.battle.units.map(u => u.fighter));
+    this.overlay.update(this.battle.units);
     this._updateConsole();
     this._updateDebug(dt);
 
@@ -296,6 +277,8 @@ export class BattleScreen {
           const big = e.act === 'super' || e.act === 'uppercut';
           this.cam.shake(e.blocked ? 0.10 :
             big ? CONFIG.impact.shakeLarge : CONFIG.impact.shakeSmall);
+          const V = this.battle.units.find((u) => u.id === e.v);
+          if (V) this.overlay.damage(V, e.dmg, { big, blocked: e.blocked });
           break;
         }
         case 'supercast':
@@ -428,6 +411,7 @@ export class BattleScreen {
   /* ================= teardown ================= */
 
   teardown() {
+    this.overlay?.teardown();
     if (this.speedBtn && this._onSpeedClick) {
       this.speedBtn.removeEventListener('click', this._onSpeedClick);
     }

@@ -35,7 +35,7 @@ const mkClip = (n, d) => new THREE.AnimationClip(n, d, JAMMO_SKELETON.slice(0, 8
   new THREE.QuaternionKeyframeTrack(`${b.n}.quaternion`,
     new Float32Array([0, d]), new Float32Array([...b.r, ...b.r]))));
 const clips = {};
-for (const n of ['idle','jab','cross','hook','uppercut','shield','dodge','dash','hit','ko','crouch','victory'])
+for (const n of ['idle','jab','cross','hook','uppercut','shield','dodge','dash','hit','ko','crouch','kick','roundhouse','victory'])
   clips[n] = mkClip(n, 1);
 const assets = { clips, characters: { mecka: {
   procedural: true, meshScale: 2.0, groundLift: 0.85, autoFit: false,
@@ -44,11 +44,12 @@ const assets = { clips, characters: { mecka: {
 
 const blue = { helmet: 'blue', torso: 'blue', armR: 'blue', armL: 'blue', legs: 'blue' };
 const consoleEl = window.document.getElementById('console');
+const overlayEl = window.document.getElementById('arena-overlay');
 const announced = [];
 let endResult = null;
 
 const screen = new BattleScreen({
-  assets, renderer: null, aspect: 0.5, consoleEl,
+  assets, renderer: null, aspect: 0.5, consoleEl, overlayEl,
   announcer: (t) => announced.push(t),
   onEnd: (r) => { endResult = r; },
   seed: 42,
@@ -56,10 +57,16 @@ const screen = new BattleScreen({
   waves: [[{ set: 'red', hpMax: 70 }]],
 });
 
-/* ---- 1. Console skeleton ---- */
-ok(consoleEl.querySelectorAll('.ucard').length === 2, `2 unit cards built`);
-ok(consoleEl.querySelector('.ucard.side-player') !== null &&
-   consoleEl.querySelector('.ucard.side-enemy') !== null, `one card per side`);
+/* ---- 1. Arena overlay skeleton (M3: bars live under the units) ---- */
+screen.update(1 / 60);           // bars are lazily built on first update
+ok(overlayEl.querySelectorAll('.ao-unit').length === 2, `one arena bar stack per unit`);
+ok(overlayEl.querySelector('.ao-unit.side-player') !== null &&
+   overlayEl.querySelector('.ao-unit.side-enemy') !== null, `bars are side-tinted`);
+ok(overlayEl.querySelectorAll('.ao-hp').length === 2 &&
+   overlayEl.querySelectorAll('.ao-sp').length === 2, `each stack carries HP + super`);
+ok(consoleEl.querySelector('#console-cards') === null &&
+   consoleEl.querySelectorAll('.ucard').length === 0,
+   `the console carries no unit cards (inputs only)`);
 ok(window.document.getElementById('console-wave').textContent === 'WAVE 1/1',
    `wave label reads WAVE 1/1`);
 ok(window.document.getElementById('console-speed').textContent === 'x1', `speed starts at x1`);
@@ -67,16 +74,14 @@ ok(window.document.getElementById('console-speed').textContent === 'x1', `speed 
 /* ---- 2. malfunction FX, forced early (no immunity yet, deterministic) ---- */
 const pUnit = screen.battle.units.find(u => u.side === 'player');
 pUnit.stress = 100;
-let sawStun = false, sawMalfClass = false, sawEyeDip = false;
+let sawStun = false, sawEyeDip = false;
 const pVis = screen.vis.get(pUnit.id);
 for (let i = 0; i < 45; i++) {
   screen.update(1 / 60);
   if (pUnit.fighter.stunTime > 0) sawStun = true;
-  if (window.document.getElementById(`ucard-${pUnit.id}`).classList.contains('malf')) sawMalfClass = true;
   if (pVis.emissives.length && pVis.emissives.some(e => e.mat.emissiveIntensity < e.base * 0.5)) sawEyeDip = true;
 }
 ok(sawStun, `stress overload stuns the unit`);
-ok(sawMalfClass, `Console card flares .malf during the malfunction`);
 ok(announced.includes('MALFUNCTION'), `announcer calls the malfunction`);
 ok(pVis.emissives.length > 0, `unit has genuine emissive eyes to flicker (${pVis.emissives.length} mats)`);
 ok(sawEyeDip, `eye emissive dips during the flicker`);
@@ -112,20 +117,26 @@ const rate2 = screen.battle.t - t2;
 ok(Math.abs(rate1 - 1.0) < 0.05 && Math.abs(rate2 - 2.0) < 0.1,
    `x2 doubles the sim rate (${rate1.toFixed(2)}s -> ${rate2.toFixed(2)}s per wall second)`);
 
-/* ---- 5. bars move; battle reaches an end ---- */
-const cards = [...consoleEl.querySelectorAll('.ucard')];
+/* ---- 5. arena bars move; damage numbers float; battle ends ---- */
+const stacks = [...overlayEl.querySelectorAll('.ao-unit')];
 const width = (c, sel) => parseFloat(c.querySelector(sel).style.width) || 0;
-let sawHpDrop = false, sawGauge = false, guard = 0;
+let sawHpDrop = false, sawGauge = false, sawDmgNum = false, guard = 0;
 while (screen.battle.state === 'running' && guard++ < 30000) {
   screen.update(1 / 60);
-  for (const c of cards) {
-    if (width(c, '.ubar.hp .fill') < 99.9) sawHpDrop = true;
-    if (width(c, '.ubar.gauge .fill') > 1) sawGauge = true;
+  for (const c of stacks) {
+    if (width(c, '.ao-hp .ao-fill') < 99.9) sawHpDrop = true;
+    if (width(c, '.ao-sp .ao-fill') > 1) sawGauge = true;
+  }
+  if (!sawDmgNum) {
+    for (const d of overlayEl.querySelectorAll('.ao-dmg')) {
+      if (/^-\d+/.test(d.textContent) && parseFloat(d.style.opacity) > 0) sawDmgNum = true;
+    }
   }
 }
 ok(screen.battle.state !== 'running', `battle reaches an end (${guard} frames driven)`);
-ok(sawHpDrop, `hp bars shrink as damage lands`);
-ok(sawGauge, `gauges fill from combat`);
+ok(sawHpDrop, `arena HP bars shrink as damage lands`);
+ok(sawGauge, `arena super meters fill from combat`);
+ok(sawDmgNum, `damage numbers float over the victims`);
 
 /* ---- 6. end flow: celebration delay, then onEnd exactly once ---- */
 ok(endResult === null, `onEnd waits out the end delay (not fired at KO)`);
@@ -134,14 +145,34 @@ ok(!!endResult && (endResult.winner === 'player' || endResult.winner === 'enemy'
    `onEnd fires with a winner (${endResult && endResult.winner})`);
 const loser = screen.battle.units.find(u => u.dead);
 ok(!!loser, `someone is down`);
-ok(window.document.getElementById(`ucard-${loser.id}`).classList.contains('dead'),
-   `the fallen unit's card dims (.dead)`);
+ok(overlayEl.querySelector(`.ao-unit[data-uid="${loser.id}"]`)?.classList.contains('dead'),
+   `the fallen unit's arena bars fade (.dead)`);
 ok(announced.includes('VICTORY') || announced.includes('DEFEAT'), `announcer calls the result`);
 
 /* ---- 7. camera never went non-finite ---- */
 const cp = screen.cam.camera.position;
 ok(Number.isFinite(cp.x) && Number.isFinite(cp.y) && Number.isFinite(cp.z),
    `camera position finite after a full battle`);
+
+/* ---- 7b. default roster: no teams given -> the shipped 2v2 shape ---- */
+{
+  const dConsole = window.document.createElement('div');
+  const dOverlay = window.document.createElement('div');
+  const d = new BattleScreen({
+    assets, renderer: null, aspect: 0.5,
+    consoleEl: dConsole, overlayEl: dOverlay,
+    announcer: () => {}, onEnd: () => {}, seed: 7,
+  });
+  d.update(1 / 60);
+  ok(d.battle.units.length === 4, `default battle spawns 2v2 (${d.battle.units.length} units)`);
+  const roles = (side) => d.battle.units.filter(u => u.side === side).map(u => u.role);
+  ok(JSON.stringify(roles('player')) === '["melee","ranged"]' &&
+     JSON.stringify(roles('enemy')) === '["melee","ranged"]',
+     `each side fields a melee tank up front and a ranged back line`);
+  ok(dOverlay.querySelectorAll('.ao-unit').length === 4,
+     `all four default units get arena bars`);
+  d.teardown();
+}
 
 /* ---- 8. CSS CONTRACT for the battle screen + Console.
        Twice a regex meant to delete one CSS block ate its neighbor and the
@@ -158,8 +189,7 @@ ok(missing.length === 0, `every battle-screen class has a CSS rule (${missing.jo
 /* ---- 9. teardown clears the Console and the scene ---- */
 const childrenBefore = screen.scene3.children.length;
 screen.teardown();
-ok(window.document.getElementById('console-cards').children.length === 0,
-   `teardown clears the Console cards`);
+ok(overlayEl.children.length === 0, `teardown clears the arena overlay`);
 ok(screen.scene3.children.length < childrenBefore, `teardown removes fighter roots from the scene`);
 
 console.log(fails ? `\n${fails} FAILURE(S)` : '\nALL PASS — the Console holds');

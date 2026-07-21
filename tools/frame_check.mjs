@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import { CONFIG } from '../src/config.js';
 import { buildMeckaKnightScene } from '../src/game/MeckaKnightProcedural.js';
 import { BattleScene } from '../src/game/BattleScene.js';
+import { computeCameraRig } from '../src/game/BrawlCamera.js';
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { console.log('  FAIL ' + m); fails++; } else console.log('  ok   ' + m); };
@@ -26,13 +27,14 @@ const CAM = CONFIG.camera;
 const ASPECT = 9 / 16;
 const MESH_SCALE = 2.0, GROUND_LIFT = 0.85;
 
-/* Anchors must mirror TeamBattle's SLOT_ANCHORS (kept private there —
- * if these drift apart, the on-screen check below is what catches it). */
+/* Anchors must mirror TeamBattle's ROLE_ANCHORS (kept private there —
+ * if these drift apart, the on-screen check below is what catches it).
+ * Worst-case field: both melee AND both ranged anchors filled per side. */
 const ANCHORS = [
-  { x: 1.7, z: 0.0 },
-  { x: 2.6, z: -1.6 },
-  { x: 3.4, z: -3.0 },
-  { x: 4.1, z: -4.4 },
+  { x: 1.7, z: 0.0, tag: 'tank' },
+  { x: 3.2, z: -2.6, tag: 'rngd' },
+  { x: 2.5, z: -1.0, tag: 'ml2' },
+  { x: 4.0, z: -3.8, tag: 'rg2' },
 ];
 
 const scene = new BattleScene(null).scene;
@@ -54,8 +56,9 @@ for (const side of [-1, 1]) {
 }
 
 const camera = new THREE.PerspectiveCamera(CAM.fov, ASPECT, 0.1, 100);
-camera.position.set(0, CAM.heightEye, CAM.zBase);
-camera.lookAt(0, CAM.heightLook, 0);
+const rig = computeCameraRig(0);
+camera.position.copy(rig.position);
+camera.lookAt(rig.look);
 camera.updateMatrixWorld(true);
 
 const toNDC = (v) => v.clone().project(camera);
@@ -73,20 +76,21 @@ for (const u of units) {
   const STANCE_HW = 0.85;
   const xMin = toNDC(new THREE.Vector3(u.x - STANCE_HW, GROUND_LIFT + 1.0, u.z)).x;
   const xMax = toNDC(new THREE.Vector3(u.x + STANCE_HW, GROUND_LIFT + 1.0, u.z)).x;
-  const tag = `${u.side < 0 ? 'P' : 'E'}${u.slot}`;
-  console.log(`  ${tag}  height ${(frac * 100).toFixed(1)}%  x [${xMin.toFixed(2)}, ${xMax.toFixed(2)}]  headY ${top.y.toFixed(2)}`);
+  const tag = `${u.side < 0 ? 'P' : 'E'}-${ANCHORS[u.slot].tag}`;
+  console.log(`  ${tag}	height ${(frac * 100).toFixed(1)}%  x [${xMin.toFixed(2)}, ${xMax.toFixed(2)}]  headY ${top.y.toFixed(2)}`);
 
   if (u.slot === 0) {
-    ok(frac > 0.16 && frac < 0.24,
-       `${tag} vanguard at SFD proportion (${(frac * 100).toFixed(1)}% of viewport height)`);
-    ok(xMin > -1 && xMax < 1, `${tag} vanguard fully in frame`);
+    // The front tanks are the fight's heart: SFD proportion, on screen.
+    ok(frac > 0.14 && frac < 0.24,
+       `${tag} at MSF proportion (${(frac * 100).toFixed(1)}% of viewport height)`);
+    ok(xMin > -1 && xMax < 1, `${tag} fully in frame`);
   } else if (u.slot === 1) {
-    ok(xMin > -1.02 && xMax < 1.02, `${tag} slot-1 in frame`);
+    ok(xMin > -1.05 && xMax < 1.05, `${tag} artillery in frame`);
   } else {
     const cxN = (xMin + xMax) / 2;
-    ok(Math.abs(cxN) < 1.15, `${tag} deep reserve center near frame (|x| ${Math.abs(cxN).toFixed(2)})`);
+    ok(Math.abs(cxN) < 1.2, `${tag} deep anchor near frame (|x| ${Math.abs(cxN).toFixed(2)})`);
   }
-  ok(top.y < 0.25, `${tag} stays in the lower band (head at ${top.y.toFixed(2)})`);
+  ok(top.y < 0.32, `${tag} stays below the skyline (head at ${top.y.toFixed(2)})`);
 }
 
 /* ---- optional: dump lit screen-space triangles for frame_render.py ---- */

@@ -260,10 +260,8 @@ export class BattleScene {
       new THREE.MeshBasicMaterial({ color: 0x33201a, fog: false }));
     horizon.position.set(0, 5.5, -69.5);
     this.scene.add(horizon);
-    const sun = new THREE.Mesh(new THREE.CircleGeometry(5.5, 24),
-      new THREE.MeshBasicMaterial({ color: 0x8a4a33, fog: false }));
-    sun.position.set(-15.5, 9.2, -69);
-    this.scene.add(sun);
+    // (M3: no sun disk — at the isometric down-pitch the far sky sits
+    // above the frame; the dusk read is carried by fog + the horizon.)
   }
 
   add(obj) { this.scene.add(obj); }

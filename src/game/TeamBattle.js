@@ -37,17 +37,17 @@ import { classifyStats, counterMultiplier } from './StatClass.js';
 const FRAME = 1 / 60;
 const F = CONFIG.fighter;
 
-/* Formation anchors per slot, mirrored by side (player negative x).
- * Compact in x and staggered into DEPTH (-z): the portrait frame is only
- * ~5.7 world units wide at fight scale, so the reserve column recedes
- * diagonally instead of stretching along the lane (M2 camera design).
+/* Formation anchors by ROLE, mirrored by side (player negative x).
+ * M3: melee tanks hold the front line; ranged units shoot from depth.
+ * Nearest-x targeting makes tanking emergent — the front tank IS the
+ * nearest target, so the back line stays safe until it drops, and then
+ * melee runners dive depth-wise to reach the artillery.
  * z is presentation-only — the combat sim underneath is strictly 1-D. */
-const SLOT_ANCHORS = [
-  { x: 1.7, z: 0.0 },    // vanguard — duels at center stage
-  { x: 2.6, z: -1.6 },
-  { x: 3.4, z: -3.0 },
-  { x: 4.1, z: -4.4 },
-];
+const ROLE_ANCHORS = {
+  melee:  [{ x: 1.7, z: 0.0 }, { x: 2.5, z: -1.0 }],
+  ranged: [{ x: 3.2, z: -2.6 }, { x: 4.0, z: -3.8 }],
+};
+const roleOf = (sp, i) => sp.role || (i === 0 ? 'melee' : 'ranged');
 
 /* ---- Catalog singleton: 32 sets -> 160 parts, indexed once. ---- */
 let _cat = null;
@@ -124,11 +124,13 @@ export class TeamBattle {
     if (!this.waves.length) throw new Error('TeamBattle: no waves');
     this._nextWave = 0;
 
-    // The attack-run cycle: 1v1 duels get the tighter override block.
-    const isDuel = pTeam.length === 1 && this.waves.every((w) => w.length === 1);
-    this.cycle = { ...this.cfg.cycle, ...(isDuel ? this.cfg.cycle.duel : null) };
+    this.cycle = this.cfg.cycle;    // movement-glide knobs
 
-    for (let i = 0; i < pTeam.length; i++) this._spawnUnit(pTeam[i], 'player', i);
+    const pRoles = pTeam.map(roleOf);
+    for (let i = 0; i < pTeam.length; i++) {
+      this._spawnUnit(pTeam[i], 'player', i, null, pRoles[i],
+        pRoles.slice(0, i).filter((r) => r === pRoles[i]).length);
+    }
     this._spawnWave();           // wave 0 is on the field at t=0
 
     // Initiative stagger for the OPENING field: players and wave 0 rank
@@ -160,7 +162,7 @@ export class TeamBattle {
     return { loadout, statline };
   }
 
-  _spawnUnit(spec, side, slot, engageBase = null) {
+  _spawnUnit(spec, side, slot, engageBase = null, role = 'melee', anchorIdx = 0) {
     const { loadout, statline } = this._resolveSpec(spec);
     const ref = this.cfg.refStats;
     const unit = {
@@ -168,7 +170,7 @@ export class TeamBattle {
       name: spec.name || (spec.set ? spec.set.toUpperCase() : `unit${this._nextId}`),
       side, slot, statline, loadout,
       klass: classifyStats(statline, this.cfg.counterTriangle.dominance),
-      powerBase: statline.power / ref.power,
+      powerBase: (statline.power / ref.power) * (this.cfg.turns.damageMult ?? 1),
       speedMult: Math.max(0.05, statline.speed / ref.speed),
       hpMax: spec.hpMax || Math.round(this.cfg.baseHp + statline.armor * this.cfg.hpPerArmor),
       gauge: 0,
@@ -181,31 +183,34 @@ export class TeamBattle {
       decisionIn: 0,
       blockUntil: 0,
       fighter: null,
-      // M2 ranged volley state.  The slot profiles bias power above
-      // speed for EVERY set ("punching is the point"), so the shell
-      // line sits at the measured natural break in the power/speed
-      // ratio (catalog range 0.90-1.81): 14 bruiser sets lob shells,
-      // the other 18 snap bolts.
+      // The salvo kind.  Slot profiles bias power above speed for EVERY
+      // set ("punching is the point"), so the shell line sits at the
+      // measured natural break in the power/speed ratio (catalog range
+      // 0.90-1.81): 14 bruiser sets lob shells, 18 snap bolts.
       weapon: statline.power > statline.speed * 1.40 ? 'shell' : 'bolt',
-      rangedIn: 0,
-      // M2 attack-run cycle state.
+      // M3 turn-engine state.
+      role,
+      meter: 0,
       phase: 'hold',
-      holdIn: 0,
       stringHits: 0,
+      stringMax: 0,
       stringUntil: 0,
+      salvoLeft: 0,
+      salvoNextAt: 0,
       anchor: null,
       zPos: 0,
     };
     const sideSign = side === 'player' ? -1 : 1;
-    const a = SLOT_ANCHORS[Math.min(slot, SLOT_ANCHORS.length - 1)];
+    const list = ROLE_ANCHORS[role] || ROLE_ANCHORS.melee;
+    const a = list[Math.min(anchorIdx, list.length - 1)];
     // A pinned spawn x (tests) also pins the anchor, on the old flat lane.
     unit.anchor = (spec.x != null)
       ? { x: spec.x, z: 0 }
       : { x: sideSign * a.x, z: a.z };
     unit.zPos = unit.anchor.z;
-    unit.holdIn = this._holdRoll();
-    unit.rangedIn = this._rangedRoll(unit) *
-      (this.cfg.ranged.firstShotDelayFrac + this.rng() * 0.4);
+    // Opening meters start part-filled and IDENTICAL, so time-to-first-
+    // turn is strictly ordered by speed (the initiative contract).
+    unit.meter = this.cfg.turns.meterMax * this.cfg.turns.startFrac;
     const startX = unit.anchor.x;
     unit.fighter = new Fighter({
       assets: this.assets,
@@ -236,8 +241,10 @@ export class TeamBattle {
     const specs = this.waves[idx];
     this._nextWave++;
     const spawned = [];
+    const roles = specs.map(roleOf);
     for (let i = 0; i < specs.length; i++) {
-      spawned.push(this._spawnUnit(specs[i], 'enemy', i));
+      spawned.push(this._spawnUnit(specs[i], 'enemy', i, null, roles[i],
+        roles.slice(0, i).filter((r) => r === roles[i]).length));
     }
     // Later waves rank their own entry stagger among themselves.
     const ranked = spawned.slice().sort(
@@ -336,26 +343,31 @@ export class TeamBattle {
     const busy = f.stunTime > 0 || f.hitstunTime > 0 || f.blockstunTime > 0;
     const CY = this.cycle;
 
-    // ---- The attack-run cycle (M2) ----
-    // hold (anchor, cooldown) -> runin (dash to standoff) -> string
-    // (1..N swings) -> runout (backpedal home) -> hold.  Steering never
-    // overrides an in-flight action's own move target (dodge/dash), and
+    // ---- The turn body (M3) ----
+    // Turn STARTS are owned by the meter engine in step(); this machine
+    // only plays the turn out.  Melee: runin -> string -> runout ->
+    // hold.  Ranged: salvo -> hold.  Super: superturn -> hold.  Steering
+    // never overrides an in-flight action's own move target, and
     // z-depth is eased separately in step() — the sim stays 1-D in x.
     switch (unit.phase) {
       case 'hold': {
-        unit.holdIn -= FRAME;
-        unit.rangedIn -= FRAME;
         if (!busy && !f.action) f.setMoveTarget(unit.anchor.x);
-        if (unit.rangedIn <= 0 && tgt && !busy && !f.shielding && f.canAct(0)) {
+        break;
+      }
+      case 'salvo': {
+        if (unit.salvoLeft <= 0 || !tgt || this.t >= unit.stringUntil) {
+          if (!f.action) unit.phase = 'hold';   // let the pose finish
+          break;
+        }
+        if (this.t >= unit.salvoNextAt && !busy && f.canAct(0)) {
           this._fireVolley(unit, tgt);
-          unit.rangedIn = this._rangedRoll(unit);
+          unit.salvoLeft--;
+          unit.salvoNextAt = this.t + this.cfg.turns.rangedShotGapSec;
         }
-        if (unit.holdIn <= 0 && tgt && !busy && f.canAct(0) &&
-            this._runners(unit.side) < CY.maxRunners) {
-          unit.phase = 'runin';
-          f.setShielding(false);
-          unit.blockUntil = 0;
-        }
+        break;
+      }
+      case 'superturn': {
+        if (!f.action) unit.phase = 'hold';
         break;
       }
       case 'runin': {
@@ -375,7 +387,7 @@ export class TeamBattle {
       }
       case 'string': {
         const done = !tgt || this.t >= unit.stringUntil ||
-                     unit.stringHits >= CY.stringMaxHits;
+                     unit.stringHits >= unit.stringMax;
         if (done) {
           if (!f.action) unit.phase = 'runout';   // let the last swing land
           break;
@@ -393,7 +405,6 @@ export class TeamBattle {
         }
         if (Math.abs(f.root.position.x - unit.anchor.x) <= CY.arriveEps) {
           unit.phase = 'hold';
-          unit.holdIn = this._holdRoll();
         }
         break;
       }
@@ -404,15 +415,6 @@ export class TeamBattle {
     unit.decisionIn = (B.baseInterval + this.rng() * B.jitter) / unit.speedMult;
 
     if (!tgt || !f.canAct(0)) return;
-
-    // Full gauge -> the super, before anything else (Auto heuristic).
-    if (unit.gauge >= this.cfg.gauge.max) {
-      if (f.superShot()) {
-        unit.gauge = 0;
-        this._log('supercast', { u: unit.id });
-        return;
-      }
-    }
 
     const gap = Math.abs(tgt.fighter.root.position.x - f.root.position.x);
     if (unit.phase === 'string' && gap <= F.punchRange) {
@@ -450,23 +452,44 @@ export class TeamBattle {
     // else: hold ground this beat.
   }
 
-  _runners(side) {
-    let n = 0;
+  /** One striker at a time, globally — the serialized MSF beat.
+   *  Runout is excluded: the next turn may launch while the previous
+   *  striker retreats (the pipeline). */
+  _strikerActive() {
     for (const u of this.units) {
-      if (u.side === side && !u.dead &&
-          (u.phase === 'runin' || u.phase === 'string')) n++;
+      if (u.dead) continue;
+      if (u.phase === 'runin' || u.phase === 'string' ||
+          u.phase === 'salvo' || u.phase === 'superturn') return true;
     }
-    return n;
+    return false;
   }
 
-  _holdRoll() {
-    return Math.max(0.2, this.cycle.holdCooldownSec +
-      (this.rng() * 2 - 1) * this.cycle.holdJitterSec);
-  }
-
-  _rangedRoll(unit) {
-    const R = this.cfg.ranged[unit.weapon];
-    return Math.max(0.3, R.cooldownSec + (this.rng() * 2 - 1) * R.jitterSec);
+  _startTurn(unit) {
+    unit.meter = 0;
+    const f = unit.fighter;
+    f.setShielding(false);
+    unit.blockUntil = 0;
+    // A full super gauge converts the turn into the super (the MSF
+    // ultimate beat) — fired from position, no run.
+    if (unit.gauge >= this.cfg.gauge.max && f.superShot()) {
+      unit.gauge = 0;
+      unit.phase = 'superturn';
+      this._log('supercast', { u: unit.id });
+      this._log('turn', { u: unit.id, kind: 'super' });
+      return;
+    }
+    if (unit.role === 'ranged') {
+      unit.phase = 'salvo';
+      unit.salvoLeft = this.cfg.turns.rangedSalvo[unit.weapon] ?? 1;
+      unit.salvoNextAt = this.t;
+      unit.stringUntil = this.t + this.cycle.salvoTimeoutSec;
+      this._log('turn', { u: unit.id, kind: 'salvo' });
+    } else {
+      unit.phase = 'runin';
+      unit.stringMax = this.cfg.turns.meleeStringMin +
+        (this.rng() < 0.5 ? 0 : 1);
+      this._log('turn', { u: unit.id, kind: 'strike' });
+    }
   }
 
   /** Schedule a volley: the visual flies for fs seconds; the damage tick
@@ -544,6 +567,30 @@ export class TeamBattle {
       if (f.stunTime > 0 || f.hitstunTime > 0 || f.blockstunTime > 0) {
         f.setMoveTarget(f.root.position.x);
       }
+    }
+
+    // ---- Turn engine (M3): meters fill by speed; strikes serialize ----
+    const T = this.cfg.turns;
+    for (const u of this._order) {
+      if (u.dead) continue;
+      if (u.phase === 'hold' || u.phase === 'runout') {
+        // Uncapped past max: the longest-waiting unit wins the queue.
+        u.meter += T.fillPerSec * u.speedMult * FRAME;
+      }
+    }
+    if (!this._strikerActive()) {
+      let pick = null;
+      for (const u of this._order) {          // _order breaks meter ties
+        if (u.dead || u.phase !== 'hold' || u.meter < T.meterMax) continue;
+        if (this.t < u.engageAt) continue;
+        const f = u.fighter;
+        if (f.isKO() || f.stunTime > 0 || f.hitstunTime > 0 ||
+            f.blockstunTime > 0) continue;    // stunned holds a full meter
+        if (!f.canAct(0)) continue;
+        if (!u.target || u.target.fighter.isKO()) continue;
+        if (!pick || u.meter > pick.meter + 1e-9) pick = u;
+      }
+      if (pick) this._startTurn(pick);
     }
 
     // ---- Ranged volleys: damage lands on the arrival tick ----
@@ -636,7 +683,8 @@ export class TeamBattle {
       gauge: Math.round(u.gauge * 10) / 10,
       x: Math.round(u.fighter.root.position.x * 100) / 100,
       z: Math.round(u.zPos * 100) / 100,
-      phase: u.phase,
+      phase: u.phase, role: u.role,
+      meter: Math.round(Math.min(1, u.meter / this.cfg.turns.meterMax) * 100),
       dead: u.dead,
     }));
   }

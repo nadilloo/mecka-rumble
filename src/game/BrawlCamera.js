@@ -1,11 +1,14 @@
 /* ============================================================
    BrawlCamera.js — the sidescroll-brawl camera (M1).
 
-   M2: a mostly-fixed wide frame at CONFIG.camera.zBase (SFD
-   proportions — units ~19-20% of viewport height, verified by
-   tools/frame_check.mjs).  The only motion is a slow look-x drift
-   toward the weighted action centroid, clamped to panMax, plus the
-   existing shake.  No spread-zoom, no fighting-game chase.
+   M3: a mostly-fixed ISOMETRIC frame — elevated pitch plus a fixed
+   diagonal yaw (CONFIG.camera.pitchDeg/yawDeg), camera on the player's
+   side so the player column reads foreground-left and the enemies
+   background-right, the lane running lower-left -> upper-right (the
+   MSF diagonal).  The only motion is a slow look-x drift toward the
+   weighted action centroid, clamped to panMax, plus shake.  The rig
+   math lives in computeCameraRig so tools/frame_check.mjs verifies the
+   EXACT same frame the game renders.
 
    The Chrome-Mobile NaN guards are inherited verbatim from FightCamera:
    that browser's WebGL blanks the whole canvas on a single non-finite
@@ -18,11 +21,27 @@ import { clamp, damp } from '../utils/math.js';
 
 const C = CONFIG.camera;
 
+/** The one true camera placement: orbit offset from the look point by
+ *  yaw/pitch at zBase distance.  Pure — used by the class below AND by
+ *  tools/frame_check.mjs, so the verified frame IS the shipped frame. */
+export function computeCameraRig(focusX) {
+  const yaw = (C.yawDeg * Math.PI) / 180;
+  const pitch = (C.pitchDeg * Math.PI) / 180;
+  const look = new THREE.Vector3(focusX, C.heightLook, C.lookZ);
+  const off = new THREE.Vector3(
+    Math.sin(yaw) * Math.cos(pitch),
+    Math.sin(pitch),
+    Math.cos(yaw) * Math.cos(pitch),
+  ).multiplyScalar(C.zBase);
+  return { look, position: off.add(look) };
+}
+
 export class BrawlCamera {
   constructor(aspect) {
     this.camera = new THREE.PerspectiveCamera(C.fov, aspect, 0.1, 100);
-    this.camera.position.set(0, C.heightEye, C.zBase);
-    this.camera.lookAt(0, C.heightLook, 0);
+    const rig = computeCameraRig(0);
+    this.camera.position.copy(rig.position);
+    this.camera.lookAt(rig.look);
     this.shakeAmount = 0;
     this._lookX = 0;
   }
@@ -59,11 +78,12 @@ export class BrawlCamera {
     const focusX = clamp(sumWX / sumW, -C.panMax, C.panMax);
     this._lookX = damp(this._lookX ?? 0, focusX, C.lookLerp, dt);
 
-    this.camera.position.x = damp(this.camera.position.x, this._lookX, C.posLerp, dt);
-    this.camera.position.z = C.zBase;
-    this.camera.position.y = damp(this.camera.position.y, C.heightEye, C.posLerp, dt);
+    const rig = computeCameraRig(this._lookX);
+    this.camera.position.x = damp(this.camera.position.x, rig.position.x, C.posLerp, dt);
+    this.camera.position.y = rig.position.y;
+    this.camera.position.z = rig.position.z;
 
-    const look = new THREE.Vector3(this._lookX, C.heightLook, 0);
+    const look = rig.look;
     const m = new THREE.Matrix4().lookAt(this.camera.position, look, new THREE.Vector3(0, 1, 0));
     const q = new THREE.Quaternion().setFromRotationMatrix(m);
     this.camera.quaternion.slerp(q, 1 - Math.exp(-C.lookLerp * dt));
@@ -82,9 +102,11 @@ export class BrawlCamera {
         !Number.isFinite(cq.x) || !Number.isFinite(cq.y) ||
         !Number.isFinite(cq.z) || !Number.isFinite(cq.w)) {
       console.warn('[BrawlCamera] non-finite camera state, resetting');
-      this.camera.position.set(0, C.heightEye, C.zBase);
+      const safe = computeCameraRig(0);
+      this.camera.position.copy(safe.position);
       this.camera.quaternion.identity();
-      this.camera.lookAt(0, C.heightLook, 0);
+      this.camera.lookAt(safe.look);
+      this._lookX = 0;
     }
   }
 }

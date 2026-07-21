@@ -96,6 +96,7 @@ export class App {
       renderer: this.renderer.three,
       aspect: this.renderer.aspect,
       consoleEl: this.consoleEl,
+      overlayEl: document.getElementById('arena-overlay'),
       announcer: (t, ms) => this.ui.setAnnouncer(t, ms),
       onEnd: (result) => this.ui.showEndModal(result.winner === 'player'),
       seed: Date.now() >>> 0,

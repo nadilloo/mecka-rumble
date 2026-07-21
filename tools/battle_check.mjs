@@ -225,16 +225,17 @@ ok(rA.t < CONFIG.team.timeoutSec, `...and ends well before the ${CONFIG.team.tim
   const durations = [7, 42].map(s => canonical(s).run());
   ok(durations.every(r => r.t >= 120 && r.reason === 'ko'),
      `shape holds across seeds (${durations.map(r => r.t + 's').join(', ')})`);
-  // M2 pacing locks — tuned by measurement (8 seeds: 180-237s, all KO).
+  // M3 pacing locks — tuned by measurement (8 seeds: 169-242s,
+  // 52-58 hits/min, all player KO).
   ok(rA.t <= 260, `canonical stays clear of the timeout ceiling (${rA.t}s <= 260s)`);
   const hpm = rA.log.filter(e => e.type === 'hit' && e.dmg > 0).length / (rA.t / 60);
-  ok(hpm >= 40 && hpm <= 100,
-     `hit cadence in the tuned band (${hpm.toFixed(1)} hits/min in 40..100)`);
+  ok(hpm >= 40 && hpm <= 75,
+     `hit cadence in the tuned band (${hpm.toFixed(1)} hits/min in 40..75)`);
 }
 
-/* ============ 7b. The duel window (M2) ============ */
-// 1v1 runs the tighter cycle.duel loop; measured 70-99s across 8 seeds
-// with mixed winners (blue vs red is a fair matchup).
+/* ============ 7b. The duel window (M3) ============ */
+// 1v1 under the turn engine; measured 90-126s across 8 seeds with
+// mixed winners (4 player / 4 enemy — blue vs red stays a fair matchup).
 console.log('-- Duel window --');
 {
   const duel = (seed) => new TeamBattle({
@@ -244,15 +245,16 @@ console.log('-- Duel window --');
   }).run();
   const rs = [1, 2, 3].map(duel);
   ok(rs.every(r => r.reason === 'ko'), 'duels end by KO');
-  ok(rs.every(r => r.t >= 45 && r.t <= 110),
-     `duels land in the 45-110s window (${rs.map(r => r.t.toFixed(0) + 's').join(', ')})`);
+  ok(rs.every(r => r.t >= 60 && r.t <= 140),
+     `duels land in the 60-140s window (${rs.map(r => r.t.toFixed(0) + 's').join(', ')})`);
 }
 
-/* ============ 7c. Ranged volleys (M2) ============ */
+/* ============ 7c. Ranged volleys (M3 salvos) ============ */
 console.log('-- Ranged volleys --');
 {
   const vols = rA.log.filter(e => e.type === 'volley');
-  ok(vols.length >= 40, `anchors keep the air busy (${vols.length} volleys)`);
+  // Measured 98-132 volley shots across 8 canonical seeds (salvo turns).
+  ok(vols.length >= 60, `salvo turns keep the air busy (${vols.length} volleys)`);
   ok(vols.every(v => v.kind === 'bolt' || v.kind === 'shell'),
      'every volley is a bolt or a shell');
   // Damage lands on the arrival tick: each volley's flight seconds are
@@ -271,6 +273,64 @@ console.log('-- Ranged volleys --');
      `volley damage lands on the arrival tick (${timed}/${checked} on schedule)`);
   const hitKinds = new Set(rA.log.filter(e => e.type === 'hit').map(e => e.act));
   ok(hitKinds.has('bolt'), 'bolt chip damage appears in the log');
+}
+
+/* ============ 7d. Turn engine (M3) ============ */
+console.log('-- Turn engine --');
+{
+  // The MSF contract: meters fill at speed, a full meter is a turn.
+  const turns = rA.log.filter(e => e.type === 'turn');
+  ok(turns.length >= 50, `the canonical battle is turn-driven (${turns.length} turns)`);
+  const kinds = new Set(turns.map(e => e.kind));
+  ok([...kinds].every(k => ['strike', 'salvo', 'super'].includes(k)) &&
+     kinds.has('strike') && kinds.has('salvo') && kinds.has('super'),
+     `all three turn kinds occur (${[...kinds].join(',')})`);
+}
+{
+  // Serialization: sample every tick; never two concurrent strikers.
+  const b = canonical(1);
+  let maxConc = 0, steps = 0;
+  while (b.state === 'running' && steps++ < 20000) {
+    b.step();
+    const conc = b.units.filter(u => !u.dead &&
+      (u.phase === 'runin' || u.phase === 'string' ||
+       u.phase === 'salvo' || u.phase === 'superturn')).length;
+    if (conc > maxConc) maxConc = conc;
+  }
+  ok(maxConc === 1, `strikes are serialized (max ${maxConc} concurrent striker)`);
+}
+{
+  // Speed buys frequency: meters seed identically, fill scales with
+  // speedMult -> the faster unit takes the battle's first turn.
+  const b = new TeamBattle({
+    seed: 6, assets,
+    playerTeam: [{ name: 'FAST', stats: { speed: 100, armor: 74, power: 67 }, x: -1.25 }],
+    waves: [[{ name: 'SLOW', stats: { speed: 30, armor: 74, power: 67 }, x: 1.25 }]],
+  });
+  const fastId = b.units.find(u => u.name === 'FAST').id;
+  while (b.state === 'running' && !b.log.some(e => e.type === 'turn')) b.step();
+  const first = b.log.find(e => e.type === 'turn');
+  ok(first && first.u === fastId, 'the faster unit takes the first turn');
+}
+
+/* ============ 7e. 2v2 default shape (M3) ============ */
+// The shipped default roster: melee tank + ranged ally vs the mirrored
+// enemy pair. Measured across 8 seeds: 86-103s, all player KO wins,
+// 5-9 supers.
+console.log('-- 2v2 default --');
+{
+  const twov2 = (seed) => new TeamBattle({
+    seed, assets,
+    playerTeam: [{ set: 'blue' }, { set: 'cobalt' }],
+    waves: [[{ set: 'red' }, { set: 'ash' }]],
+  }).run();
+  const rs = [1, 2, 3].map(twov2);
+  ok(rs.every(r => r.reason === 'ko' && r.winner === 'player'),
+     'the default matchup is winnable and ends by KO');
+  ok(rs.every(r => r.t >= 60 && r.t <= 120),
+     `2v2 lands in the 60-120s window (${rs.map(r => r.t.toFixed(0) + 's').join(', ')})`);
+  ok(rs.every(r => r.log.filter(e => e.type === 'supercast').length >= 4),
+     'supers fire even in the short format');
 }
 
 /* ============ 8. Timeout path ============ */

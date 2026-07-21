@@ -448,3 +448,55 @@ html, body {
   pointer-events: none;
   text-shadow: 0 1px 2px #000;
 }
+
+
+/* ================= M3: the arena overlay ================= */
+/* Bars + damage numbers live IN the arena; the console keeps inputs. */
+#combat { position: relative; }
+#arena-overlay {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 4;
+}
+.ao-unit {
+  position: absolute; left: 0; top: 0;
+  width: 46px;
+  will-change: transform;
+  transition: opacity 0.25s;
+}
+.ao-unit.dead { opacity: 0; }
+.ao-hp, .ao-sp {
+  height: 5px; margin-top: 2px;
+  background: rgba(10, 12, 18, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ao-sp { height: 3px; }
+.ao-fill { height: 100%; width: 100%; }
+.ao-unit.side-player .ao-hp .ao-fill { background: #3f6ae0; }
+.ao-unit.side-enemy  .ao-hp .ao-fill { background: #c03340; }
+.ao-sp .ao-fill { background: #d8a930; }
+.ao-unit.full .ao-sp {
+  box-shadow: 0 0 6px 1px rgba(216, 169, 48, 0.85);
+  border-color: rgba(216, 169, 48, 0.9);
+}
+.ao-dmg {
+  position: absolute; left: 0; top: 0;
+  font: 700 15px/1 "Segoe UI", system-ui, sans-serif;
+  color: #f2f5ff;
+  text-shadow: 0 1px 0 #05060a, 0 0 6px rgba(0, 0, 0, 0.9);
+  letter-spacing: 0.02em;
+  will-change: transform, opacity;
+  opacity: 0;
+}
+.ao-dmg.big {
+  font-size: 22px;
+  color: #ffd24a;
+  text-shadow: 0 1px 0 #05060a, 0 0 10px rgba(255, 180, 40, 0.55);
+}
+.ao-dmg.blk { font-size: 12px; color: #9aa3b5; }
+
+/* The card-less console is a slim input strip. */
+#console { min-height: 0; }

@@ -12,7 +12,7 @@ export const CONFIG = {
      Single source of truth.  UIManager stamps it bottom-left on every
      screen; the milestone zip is named to match (mecka-rumble-<v>.zip,
      lowercased).  Bump on every shipped build. */
-  version: 'M2.0',
+  version: 'M3.0',
 
   /* -------- Debug / dev flags -------- */
   debug: {
@@ -215,7 +215,7 @@ export const CONFIG = {
     // Super gauge — fills from damage BOTH ways (dealt and taken; taken
     // fills faster, the genre's comeback lever).  Full gauge = the auto
     // brain fires the super action.
-    gauge: { max: 100, perDamageDealt: 0.75, perDamageTaken: 1.10 },
+    gauge: { max: 100, perDamageDealt: 0.45, perDamageTaken: 0.65 },
 
     // The super itself: resolved as a direct heavy strike through
     // takeHit('super') so the existing frame data (hitStun 28,
@@ -227,41 +227,48 @@ export const CONFIG = {
     // locks for `duration`, sparks (M1 FX), then gets an immunity window
     // so it can't be chain-tripped.  Supers add bonus stress on hit.
     malfunction: {
-      threshold: 50, stressPerDamage: 0.80,
+      threshold: 50, stressPerDamage: 0.4,
       duration: 1.1, decayPerSec: 4, immunitySec: 5,
     },
 
     // Auto-brain pacing.  Interval is divided by the unit's speed
     // multiplier — SPEED literally is attack cadence.
-    // ---- M2 ranged volleys ----
-    // Fired from the anchor between runs (HOLD phase only), each on its
-    // own cooldown.  Damage resolves on the ARRIVAL tick, synced to the
-    // visual's flight time.  Weapon kind derives from the statline:
-    // power-tilted sets lob shells, everyone else snaps bolts.
+    // ---- M3 ranged volleys ----
+    // Fired ONLY during a ranged unit's salvo turn.  Damage resolves on
+    // the ARRIVAL tick, synced to the visual's flight time.  Weapon kind
+    // derives from the statline (shell line at the measured power/speed
+    // ratio break).
     ranged: {
-      bolt:  { cooldownSec: 2.6, jitterSec: 0.6, damage: 3.0, speed: 14 },
-      shell: { cooldownSec: 4.8, jitterSec: 0.8, damage: 6.0, flightSec: 0.9 },
-      firstShotDelayFrac: 0.6,   // opening volley trails the first cooldown
+      bolt:  { damage: 3.0, speed: 14 },
+      shell: { damage: 6.0, flightSec: 0.9 },
     },
 
-    // ---- M2 attack-run cycle ----
-    // Idle-battler pacing: units hold a formation anchor, dash in for a
-    // short melee string, dash back to the anchor.  Breathing room comes
-    // from the cycle, not from slowing animations down.
+    // ---- M3 turn engine (the MSF recipe) ----
+    // No fixed rounds: every unit's turn meter fills at fillPerSec x its
+    // speed stat, so speed directly buys action frequency.  A full meter
+    // takes the unit's turn — melee: run in, throw a 2-3 hit string, run
+    // home; ranged: a salvo from the anchor; full super gauge converts
+    // the turn into the super.  Strikes are SERIALIZED globally (one
+    // active striker at a time) but pipelined: the next turn may start
+    // while the previous striker is retreating.
+    turns: {
+      meterMax: 100,
+      fillPerSec: 22,            // x speedMult: ~4.5s between turns at speed 1
+      startFrac: 0.6,            // opening meters part-filled: no dead air,
+                                 // and the fastest unit still strikes first
+      meleeStringMin: 2,         // swings per melee turn: min..min+1
+      rangedShotGapSec: 0.28,    // between salvo shots
+      rangedSalvo: { bolt: 3, shell: 1 },   // shots per salvo turn
+      damageMult: 2.0,           // fewer, weightier beats (M3 pacing)
+    },
+
+    // ---- Movement glide (shared by the turn phases) ----
     cycle: {
-      holdCooldownSec: 2.2,      // anchor wait between runs
-      holdJitterSec: 0.8,        // +/- uniform, rng-driven (deterministic)
-      maxRunners: 1,             // per side simultaneously in run/string
       runSpeedMult: 1.5,         // dash-in glide speed
       retreatSpeedMult: 1.2,     // backpedal-home speed
-      stringMaxHits: 4,          // attack initiations per run
-      stringTimeoutSec: 1.8,     // whiff/stall guard
+      stringTimeoutSec: 1.8,     // whiff/stall guard per melee turn
+      salvoTimeoutSec: 3.0,      // stall guard per salvo turn
       arriveEps: 0.25,           // "reached anchor" slop, world units
-      duel: {                    // 1v1 gets a much tighter loop
-        holdCooldownSec: 0.5,
-        holdJitterSec: 0.3,
-        stringMaxHits: 5,        // duels throw real combos
-      },
     },
 
     brain: {
@@ -277,7 +284,9 @@ export const CONFIG = {
     // MAGMA measured 72-88s vs the default SENTINEL loadout with real
     // stakes (2/5 seeds lose) — the Hangar is the answer to losing.
     screen: {
-      enemySet: 'red',
+      enemySet: 'red',       // enemy melee tank (MAGMA)
+      allySet: 'cobalt',     // M3: the player's ranged wingman (bolts)
+      enemyRangedSet: 'ash', // M3: the enemy's back-line lobber (shells)
       endDelaySec: 2.4,            // KO clip / celebration before the modal
       leanPerSpeed: 0.030,         // hover-slide: rad of body lean per unit/s
       leanMax: 0.16, leanDamp: 10,
@@ -322,14 +331,20 @@ export const CONFIG = {
     // tools/frame_check.mjs).  Breathing room in portrait comes from the
     // depth-staggered anchors, not from pulling further back.
     fov: 54,
-    zBase: 16.0,               // FIXED distance — fighters are 3.22 world
-                               // units tall (measured), so this lands them
-                               // at ~19-20% of viewport height
+    zBase: 18.0,               // orbit distance — fighters are 3.22 world
+                               // units tall (measured); this keeps them
+                               // near ~18% of viewport height
+    pitchDeg: 26,              // M3: elevated, looking down at the yard
+    yawDeg: -24,               // M3: fixed diagonal — the lane reads
+                               // lower-left -> upper-right; the camera
+                               // sits on the PLAYER side so the player
+                               // team is the near/foreground column
     panMax: 1.0,               // drift cap — "mostly fixed"
     lookLerp: 1.2,             // slow drift toward the action
     posLerp: 2.2,              // camera x trails the look point
-    heightEye: 4.2,
-    heightLook: 3.4,           // fighters in the lower band; arena + sky above
+    heightLook: 3.0,           // look point above fighter center ->
+    lookZ: -1.6,               // fighters lower band; centered on the
+                               // formation's z spread
     backlineWeight: 0.15,      // deep reserves barely tug the frame
 
     shakeDecay: 9.0,
