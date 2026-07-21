@@ -19,7 +19,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CONFIG } from '../config.js';
 import { buildMeckaKnightScene } from './MeckaKnightProcedural.js';
-import { buildCrouchClip } from './proceduralClips.js';
+import { buildCrouchClip, buildKickClip, buildRoundhouseClip } from './proceduralClips.js';
 
 const BASE = './assets';
 
@@ -176,6 +176,8 @@ export async function loadAllAssets() {
   // an untracked bone reverts toward the T-pose bind pose under blending.
   if (clips.idle) {
     clips.crouch = buildCrouchClip(clips.idle);
+    clips.kick = buildKickClip(clips.idle);
+    clips.roundhouse = buildRoundhouseClip(clips.idle);
   }
 
   // ---- Auto-fit pass for character packs that opted in ----

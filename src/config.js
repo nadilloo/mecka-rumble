@@ -12,7 +12,7 @@ export const CONFIG = {
      Single source of truth.  UIManager stamps it bottom-left on every
      screen; the milestone zip is named to match (mecka-rumble-<v>.zip,
      lowercased).  Bump on every shipped build. */
-  version: 'M1.0',
+  version: 'M2.0',
 
   /* -------- Debug / dev flags -------- */
   debug: {
@@ -53,6 +53,7 @@ export const CONFIG = {
     punchRange: 2.6,
     punchReach: 2.8,
     uppercutReach: 3.0,
+    kickReach: 3.2,
     minSeparation: 2.4,
 
     // ---- Action descriptors ----
@@ -97,6 +98,28 @@ export const CONFIG = {
                   hitStun: 36, blockStun: 14, pushback: 2.00,
                   invuln: [1, 6] },
 
+      // Kicks — procedurally authored clips (proceduralClips.js), generated
+      // per-pack in AssetLoader alongside crouch.  kick = mid-speed poke
+      // between cross and hook; roundhouse = heavy sweep, hook-class
+      // hit-stop, longest melee reach (kickReach).
+      kick:      { startup: 7,  active: 3, recovery: 16, hitFrame: 8,
+                   damage: 7,  cost: 0,
+                   hitStun: 21, blockStun: 15, pushback: 1.20 },
+      roundhouse:{ startup: 10, active: 4, recovery: 24, hitFrame: 11,
+                   damage: 9,  cost: 0,
+                   hitStun: 26, blockStun: 17, pushback: 1.80 },
+
+      // Ranged reaction data (M2 volleys).  Never STARTED as actions —
+      // TeamBattle resolves volley damage through takeHit, which reads
+      // hitStun/blockStun/pushback off this table.  The damage numbers
+      // live in CONFIG.team.ranged.
+      bolt:  { startup: 0, active: 0, recovery: 0, hitFrame: -1,
+               damage: 0, cost: 0,
+               hitStun: 12, blockStun: 8,  pushback: 0.40 },
+      shell: { startup: 0, active: 0, recovery: 0, hitFrame: -1,
+               damage: 0, cost: 0,
+               hitStun: 18, blockStun: 12, pushback: 0.90 },
+
       // Projectiles & misc.
       shoot:    { startup: 4,  active: 0, recovery: 8,  hitFrame: 4,
                   damage: 4,  cost: 0 },
@@ -140,7 +163,7 @@ export const CONFIG = {
     // Brief screen freeze when an attack connects.  Both attacker and
     // victim freeze for these frames.  Visual punch only.
     hitStopFrames:       4,
-    hitStopFramesHeavy:  6,    // hook / uppercut / super
+    hitStopFramesHeavy:  6,    // hook / roundhouse / uppercut / super
 
     // ---- Corner ----
     // When a fighter is at the lane wall, pushback that would push them
@@ -192,7 +215,7 @@ export const CONFIG = {
     // Super gauge — fills from damage BOTH ways (dealt and taken; taken
     // fills faster, the genre's comeback lever).  Full gauge = the auto
     // brain fires the super action.
-    gauge: { max: 100, perDamageDealt: 0.55, perDamageTaken: 0.85 },
+    gauge: { max: 100, perDamageDealt: 0.75, perDamageTaken: 1.10 },
 
     // The super itself: resolved as a direct heavy strike through
     // takeHit('super') so the existing frame data (hitStun 28,
@@ -210,6 +233,37 @@ export const CONFIG = {
 
     // Auto-brain pacing.  Interval is divided by the unit's speed
     // multiplier — SPEED literally is attack cadence.
+    // ---- M2 ranged volleys ----
+    // Fired from the anchor between runs (HOLD phase only), each on its
+    // own cooldown.  Damage resolves on the ARRIVAL tick, synced to the
+    // visual's flight time.  Weapon kind derives from the statline:
+    // power-tilted sets lob shells, everyone else snaps bolts.
+    ranged: {
+      bolt:  { cooldownSec: 2.6, jitterSec: 0.6, damage: 3.0, speed: 14 },
+      shell: { cooldownSec: 4.8, jitterSec: 0.8, damage: 6.0, flightSec: 0.9 },
+      firstShotDelayFrac: 0.6,   // opening volley trails the first cooldown
+    },
+
+    // ---- M2 attack-run cycle ----
+    // Idle-battler pacing: units hold a formation anchor, dash in for a
+    // short melee string, dash back to the anchor.  Breathing room comes
+    // from the cycle, not from slowing animations down.
+    cycle: {
+      holdCooldownSec: 2.2,      // anchor wait between runs
+      holdJitterSec: 0.8,        // +/- uniform, rng-driven (deterministic)
+      maxRunners: 1,             // per side simultaneously in run/string
+      runSpeedMult: 1.5,         // dash-in glide speed
+      retreatSpeedMult: 1.2,     // backpedal-home speed
+      stringMaxHits: 4,          // attack initiations per run
+      stringTimeoutSec: 1.8,     // whiff/stall guard
+      arriveEps: 0.25,           // "reached anchor" slop, world units
+      duel: {                    // 1v1 gets a much tighter loop
+        holdCooldownSec: 0.5,
+        holdJitterSec: 0.3,
+        stringMaxHits: 5,        // duels throw real combos
+      },
+    },
+
     brain: {
       baseInterval: 0.38, jitter: 0.14,
       aggression: 0.62,            // chance an in-range decision is an attack
@@ -262,16 +316,21 @@ export const CONFIG = {
 
   /* -------- Camera (tuned for larger arena) -------- */
   camera: {
-    fov: 54,                   // wider — portrait framing is tight horizontally
-    minDistance: 8.0,
-    maxDistance: 22.0,         // further back so both fighters always fit
-    distanceLerp: 3.0,
-    positionLerp: 4.0,
-    lookLerp: 5.5,
-    heightEye: 2.4,
-    heightLook: 1.0,
-    zBase: 14.0,
-    sidePan: 0.0,
+    // M2: a mostly-FIXED wide frame (SFD proportions).  No spread-zoom,
+    // no chase — a slow look-x drift toward the engaged pair, capped at
+    // panMax.  Units land at ~19-20% of viewport height (verified by
+    // tools/frame_check.mjs).  Breathing room in portrait comes from the
+    // depth-staggered anchors, not from pulling further back.
+    fov: 54,
+    zBase: 16.0,               // FIXED distance — fighters are 3.22 world
+                               // units tall (measured), so this lands them
+                               // at ~19-20% of viewport height
+    panMax: 1.0,               // drift cap — "mostly fixed"
+    lookLerp: 1.2,             // slow drift toward the action
+    posLerp: 2.2,              // camera x trails the look point
+    heightEye: 4.2,
+    heightLook: 3.4,           // fighters in the lower band; arena + sky above
+    backlineWeight: 0.15,      // deep reserves barely tug the frame
 
     shakeDecay: 9.0,
     shakeMax: 0.55,

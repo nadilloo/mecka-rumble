@@ -190,3 +190,175 @@ export function buildCrouchClip(idleClip = null, opts = {}) {
   };
   return clip;
 }
+
+/* ============================================================
+ * Authored one-shot attack clips (M2): kicks.
+ *
+ * Same discipline as the crouch — base pose from idle, deltas on top,
+ * a track for every covered bone — but MULTI-KEYFRAME: base ->
+ * chamber -> strike -> retract -> base.  Only the SUPPORT foot is
+ * planted (world orientation restored + hips re-lowered so its toe
+ * holds baseline height); the kicking foot flies.
+ *
+ * Axes, measured 2026-07-20 (tools axis probe):
+ *   UpLeg local +X  flexes the hip (thigh forward/up)   [from crouch]
+ *   Leg   local -X  bends the knee                      [from crouch]
+ *   UpLeg local -Z  ABDUCTS (right leg swings out); +Z sweeps ACROSS
+ *   Hips  local +Z  yaws the whole body (vertical axis)
+ * ============================================================ */
+
+const AXIS_Z = new THREE.Vector3(0, 0, 1);
+
+/** Shared authoring core.  `keys` = [{ t, pose(ctx) }] with pose applying
+ *  quaternion deltas via ctx helpers.  First/last emitted keys are the base
+ *  pose so the one-shot starts and ends where idle left the body. */
+function authorActionClip(name, idleClip, duration, keys, meta = {}) {
+  const { scene, bones } = buildRig();
+
+  const base = poseAtZero(idleClip);
+  for (const n of Object.keys(bones)) {
+    const p = base[n];
+    if (p?.quaternion) bones[n].quaternion.fromArray(p.quaternion);
+    if (p?.position) bones[n].position.fromArray(p.position);
+  }
+  scene.updateMatrixWorld(true);
+
+  const baseQ = {}, baseP = {};
+  for (const [n, b] of Object.entries(bones)) {
+    baseQ[n] = b.quaternion.clone();
+    baseP[n] = b.position.clone();
+  }
+  const worldOf = (n) => bones[n].getWorldPosition(new THREE.Vector3());
+  const support = meta.support || 'Left';           // the planted leg
+  const baseSupToeY = worldOf(`mixamorig${support}ToeBase`).y;
+  const baseSupFootQ = bones[`mixamorig${support}Foot`]
+    .getWorldQuaternion(new THREE.Quaternion());
+
+  const ctx = {
+    bones, baseQ,
+    rot(n, axis, deg) {
+      bones[n].quaternion.copy(baseQ[n])
+        .multiply(new THREE.Quaternion().setFromAxisAngle(axis, deg * DEG));
+    },
+    rot2(n, axisA, degA, axisB, degB) {              // composed delta
+      bones[n].quaternion.copy(baseQ[n])
+        .multiply(new THREE.Quaternion().setFromAxisAngle(axisA, degA * DEG))
+        .multiply(new THREE.Quaternion().setFromAxisAngle(axisB, degB * DEG));
+    },
+  };
+
+  // Pose every key, planting the support foot each time, snapshotting all.
+  const covered = idleClip ? Object.keys(base) : Object.keys(bones);
+  const snaps = [];                                   // per key: {q:{}, hipsP}
+  const resetToBase = () => {
+    for (const [n, b] of Object.entries(bones)) {
+      b.quaternion.copy(baseQ[n]);
+      b.position.copy(baseP[n]);
+    }
+  };
+  const snapshot = () => {
+    const q = {};
+    for (const n of covered) if (bones[n]) q[n] = bones[n].quaternion.clone();
+    return { q, hipsP: bones.mixamorigHips.position.clone() };
+  };
+
+  const emitted = [{ t: 0 }, ...keys, { t: duration }];   // base bookends
+  for (const key of emitted) {
+    resetToBase();
+    scene.updateMatrixWorld(true);
+    if (key.pose) {
+      key.pose(ctx);
+      scene.updateMatrixWorld(true);
+      // Plant the support foot: restore its world orientation exactly...
+      const foot = bones[`mixamorig${support}Foot`];
+      const parentQ = foot.parent.getWorldQuaternion(new THREE.Quaternion());
+      foot.quaternion.copy(parentQ.invert().multiply(baseSupFootQ));
+      scene.updateMatrixWorld(true);
+      // ...then re-plant its toe at baseline height (local +Z is down).
+      const toeY = worldOf(`mixamorig${support}ToeBase`).y;
+      bones.mixamorigHips.position.z += (toeY - baseSupToeY) / HIPS_DOWN_PER_UNIT;
+      scene.updateMatrixWorld(true);
+    }
+    snaps.push(snapshot());
+  }
+
+  const times = new Float32Array(emitted.map(k => k.t));
+  const tracks = [];
+  for (const n of covered) {
+    if (!bones[n]) continue;
+    const vals = new Float32Array(snaps.length * 4);
+    snaps.forEach((s, i) => {
+      const q = s.q[n];
+      vals[i * 4] = q.x; vals[i * 4 + 1] = q.y; vals[i * 4 + 2] = q.z; vals[i * 4 + 3] = q.w;
+    });
+    tracks.push(new THREE.QuaternionKeyframeTrack(`${n}.quaternion`, times, vals));
+  }
+  const pvals = new Float32Array(snaps.length * 3);
+  snaps.forEach((s, i) => {
+    pvals[i * 3] = s.hipsP.x; pvals[i * 3 + 1] = s.hipsP.y; pvals[i * 3 + 2] = s.hipsP.z;
+  });
+  tracks.push(new THREE.VectorKeyframeTrack('mixamorigHips.position', times, pvals));
+
+  const clip = new THREE.AnimationClip(name, duration, tracks);
+  clip.userData = { generated: true, ...meta };
+  return clip;
+}
+
+/** Front kick, right leg: chamber -> snap-extend at hip height -> retract. */
+export function buildKickClip(idleClip = null) {
+  const sink = (c) => {                       // support-leg balance sink
+    c.rot('mixamorigLeftUpLeg', AXIS_X, 10);
+    c.rot('mixamorigLeftLeg', AXIS_X, -18);
+  };
+  return authorActionClip('kick', idleClip, 0.50, [
+    { t: 0.12, pose: (c) => {                 // chamber
+      c.rot('mixamorigRightUpLeg', AXIS_X, 75);
+      c.rot('mixamorigRightLeg', AXIS_X, -110);
+      c.rot('mixamorigSpine', AXIS_X, -6);
+      sink(c);
+    } },
+    { t: 0.20, pose: (c) => {                 // strike: knee snaps straight
+      c.rot('mixamorigRightUpLeg', AXIS_X, 85);
+      c.rot('mixamorigRightLeg', AXIS_X, -8);
+      c.rot('mixamorigSpine', AXIS_X, -10);
+      sink(c);
+    } },
+    { t: 0.32, pose: (c) => {                 // retract to chamber
+      c.rot('mixamorigRightUpLeg', AXIS_X, 70);
+      c.rot('mixamorigRightLeg', AXIS_X, -100);
+      c.rot('mixamorigSpine', AXIS_X, -5);
+      sink(c);
+    } },
+  ], { support: 'Left', kind: 'front-kick' });
+}
+
+/** Roundhouse, right leg: coil out -> horizontal sweep across with body
+ *  pivot -> retract.  Composed from measured flex/abduct/yaw axes. */
+export function buildRoundhouseClip(idleClip = null) {
+  const sink = (c) => {
+    c.rot('mixamorigLeftUpLeg', AXIS_X, 8);
+    c.rot('mixamorigLeftLeg', AXIS_X, -14);
+  };
+  return authorActionClip('roundhouse', idleClip, 0.70, [
+    { t: 0.16, pose: (c) => {                 // chamber: thigh up + OUT, coil
+      c.rot2('mixamorigRightUpLeg', AXIS_X, 55, AXIS_Z, -38);
+      c.rot('mixamorigRightLeg', AXIS_X, -105);
+      c.rot('mixamorigHips', AXIS_Z, -12);
+      c.rot('mixamorigSpine', AXIS_X, 6);
+      sink(c);
+    } },
+    { t: 0.30, pose: (c) => {                 // strike: sweep ACROSS, pivot in
+      c.rot2('mixamorigRightUpLeg', AXIS_X, 70, AXIS_Z, 22);
+      c.rot('mixamorigRightLeg', AXIS_X, -18);
+      c.rot('mixamorigHips', AXIS_Z, 28);
+      c.rot('mixamorigSpine', AXIS_X, 10);
+      sink(c);
+    } },
+    { t: 0.44, pose: (c) => {                 // retract
+      c.rot2('mixamorigRightUpLeg', AXIS_X, 50, AXIS_Z, -20);
+      c.rot('mixamorigRightLeg', AXIS_X, -90);
+      c.rot('mixamorigSpine', AXIS_X, 4);
+      sink(c);
+    } },
+  ], { support: 'Left', kind: 'roundhouse' });
+}

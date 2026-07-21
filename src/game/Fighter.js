@@ -124,6 +124,7 @@ export class Fighter {
     this.root.add(this.shieldMesh);
 
     this._moveTarget = this.root.position.x;
+    this._moveSpeedScale = 1;
   }
 
   _computeStats(loadout) {
@@ -321,7 +322,8 @@ export class Fighter {
   /** Set the walk-toward point (clamped to the lane).  The auto-battler
    *  brain steers with this every frame; the 1v1 game keeps using
    *  dash/dodge which write the same field. */
-  setMoveTarget(x) {
+  setMoveTarget(x, speedScale = 1) {
+    this._moveSpeedScale = speedScale;
     this._moveTarget = clamp(x, -STAGE.laneHalfWidth, STAGE.laneHalfWidth);
   }
 
@@ -384,6 +386,7 @@ export class Fighter {
   _startAction(name, clipName = name) {
     const d = ACT[name];
     if (!d) return false;
+    this._moveSpeedScale = 1;          // dash/dodge glides use native speed
     this.action = {
       name,
       startup: d.startup, active: d.active, recovery: d.recovery,
@@ -432,6 +435,17 @@ export class Fighter {
   hook()     { return this._attack('hook'); }
   cross()    { return this._attack('cross'); }
   uppercut() { return this._attack('uppercut'); }
+  kick()       { return this._attack('kick'); }
+  roundhouse() { return this._attack('roundhouse'); }
+
+  /** M2 ranged layer: strike the Shooting pose from the anchor.  The
+   *  volley itself is scheduled/resolved by TeamBattle — this is only
+   *  the wind-up visual, so it politely declines if the fighter's busy. */
+  playShootPose() {
+    if (this.action || this.isKO()) return false;
+    if (this.stunTime > 0 || this.hitstunTime > 0 || this.blockstunTime > 0) return false;
+    return this._startAction('shoot');
+  }
 
   shoot() {
     // Regular shot was removed — taps now fire jabs (handled by App
@@ -622,7 +636,8 @@ export class Fighter {
     }
 
     // Hit-stop: brief mutual freeze.  Heavy attacks freeze longer.
-    const heavy = (attackName === 'hook' || attackName === 'uppercut' || attackName === 'super');
+    const heavy = (attackName === 'hook' || attackName === 'roundhouse' ||
+                   attackName === 'uppercut' || attackName === 'super');
     const stopFrames = heavy ? C.hitStopFramesHeavy : C.hitStopFrames;
     this.hitStopTime = Math.max(this.hitStopTime, stopFrames * FRAME);
 
@@ -759,9 +774,11 @@ export class Fighter {
       // Active-phase: melee hit-check on the configured frame.
       if (ph === PHASE.ACTIVE && !this.action.hitChecked &&
           this.action.elapsedFrames >= this.action.hitFrame &&
-          ['jab','hook','cross','uppercut'].includes(this.action.name)) {
+          ['jab','hook','cross','uppercut','kick','roundhouse'].includes(this.action.name)) {
         const reach = this.action.name === 'uppercut' ? C.uppercutReach
-                    :                                   C.punchReach;
+                    : (this.action.name === 'kick' ||
+                       this.action.name === 'roundhouse') ? C.kickReach
+                    :                                       C.punchReach;
         const gapX = Math.abs(oppX - this.root.position.x);
         if (gapX <= reach) {
           const baseDmg = this.action.damage * this.stats.power;
@@ -772,7 +789,9 @@ export class Fighter {
           // Mutual hit-stop on connect (both blocked and clean hits).
           // The defender's hit-stop is set inside takeHit; this matches it.
           if (result.dealt > 0 || result.blocked) {
-            const heavy = (this.action.name === 'hook' || this.action.name === 'uppercut');
+            const heavy = (this.action.name === 'hook' ||
+                           this.action.name === 'roundhouse' ||
+                           this.action.name === 'uppercut');
             const stopFrames = heavy ? C.hitStopFramesHeavy : C.hitStopFrames;
             this.hitStopTime = Math.max(this.hitStopTime, stopFrames * FRAME);
 
@@ -851,7 +870,7 @@ export class Fighter {
     }
 
     // Movement.
-    const speed = C.moveSpeed * this.stats.speed;
+    const speed = C.moveSpeed * this.stats.speed * (this._moveSpeedScale || 1);
     const cur = this.root.position.x;
     const dx = this._moveTarget - cur;
     const maxStep = speed * dt;

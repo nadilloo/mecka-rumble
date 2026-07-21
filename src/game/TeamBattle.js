@@ -37,8 +37,17 @@ import { classifyStats, counterMultiplier } from './StatClass.js';
 const FRAME = 1 / 60;
 const F = CONFIG.fighter;
 
-/* Spawn columns per slot, mirrored by side (player negative x). */
-const SLOT_X = [3.5, 5.0, 6.5, 8.0];
+/* Formation anchors per slot, mirrored by side (player negative x).
+ * Compact in x and staggered into DEPTH (-z): the portrait frame is only
+ * ~5.7 world units wide at fight scale, so the reserve column recedes
+ * diagonally instead of stretching along the lane (M2 camera design).
+ * z is presentation-only — the combat sim underneath is strictly 1-D. */
+const SLOT_ANCHORS = [
+  { x: 1.7, z: 0.0 },    // vanguard — duels at center stage
+  { x: 2.6, z: -1.6 },
+  { x: 3.4, z: -3.0 },
+  { x: 4.1, z: -4.4 },
+];
 
 /* ---- Catalog singleton: 32 sets -> 160 parts, indexed once. ---- */
 let _cat = null;
@@ -104,6 +113,7 @@ export class TeamBattle {
     this.reason = null;
     this.log = [];
     this.units = [];
+    this._volleys = [];
     this._nextId = 0;
     this._order = [];            // initiative order (speed desc, id asc)
     this._interWaveTimer = null;
@@ -113,6 +123,10 @@ export class TeamBattle {
     if (!pTeam.length) throw new Error('TeamBattle: empty player team');
     if (!this.waves.length) throw new Error('TeamBattle: no waves');
     this._nextWave = 0;
+
+    // The attack-run cycle: 1v1 duels get the tighter override block.
+    const isDuel = pTeam.length === 1 && this.waves.every((w) => w.length === 1);
+    this.cycle = { ...this.cfg.cycle, ...(isDuel ? this.cfg.cycle.duel : null) };
 
     for (let i = 0; i < pTeam.length; i++) this._spawnUnit(pTeam[i], 'player', i);
     this._spawnWave();           // wave 0 is on the field at t=0
@@ -167,9 +181,32 @@ export class TeamBattle {
       decisionIn: 0,
       blockUntil: 0,
       fighter: null,
+      // M2 ranged volley state.  The slot profiles bias power above
+      // speed for EVERY set ("punching is the point"), so the shell
+      // line sits at the measured natural break in the power/speed
+      // ratio (catalog range 0.90-1.81): 14 bruiser sets lob shells,
+      // the other 18 snap bolts.
+      weapon: statline.power > statline.speed * 1.40 ? 'shell' : 'bolt',
+      rangedIn: 0,
+      // M2 attack-run cycle state.
+      phase: 'hold',
+      holdIn: 0,
+      stringHits: 0,
+      stringUntil: 0,
+      anchor: null,
+      zPos: 0,
     };
     const sideSign = side === 'player' ? -1 : 1;
-    const startX = spec.x ?? sideSign * SLOT_X[Math.min(slot, SLOT_X.length - 1)];
+    const a = SLOT_ANCHORS[Math.min(slot, SLOT_ANCHORS.length - 1)];
+    // A pinned spawn x (tests) also pins the anchor, on the old flat lane.
+    unit.anchor = (spec.x != null)
+      ? { x: spec.x, z: 0 }
+      : { x: sideSign * a.x, z: a.z };
+    unit.zPos = unit.anchor.z;
+    unit.holdIn = this._holdRoll();
+    unit.rangedIn = this._rangedRoll(unit) *
+      (this.cfg.ranged.firstShotDelayFrac + this.rng() * 0.4);
+    const startX = unit.anchor.x;
     unit.fighter = new Fighter({
       assets: this.assets,
       character: 'mecka',
@@ -187,6 +224,7 @@ export class TeamBattle {
       onDamageDealt: (act, dealt, blocked) =>
         this._onDamage(unit, unit.target, dealt, blocked, act),
     });
+    unit.fighter.root.position.z = unit.zPos;
     this.units.push(unit);
     this._order = this.units.slice().sort(
       (a, b) => (b.speedMult - a.speedMult) || (a.id - b.id));
@@ -295,14 +333,70 @@ export class TeamBattle {
     }
 
     const tgt = unit.target;
+    const busy = f.stunTime > 0 || f.hitstunTime > 0 || f.blockstunTime > 0;
+    const CY = this.cycle;
 
-    // Continuous approach: steer to a standoff just inside punch range.
-    // The pair side-lock (minSeparation) is the real stopper.
-    if (tgt && f.stunTime <= 0 && f.hitstunTime <= 0 && f.blockstunTime <= 0) {
-      const tx = tgt.fighter.root.position.x;
-      const myx = f.root.position.x;
-      const toward = Math.sign(tx - myx) || 1;
-      f.setMoveTarget(tx - toward * F.punchRange * B.standoffFrac);
+    // ---- The attack-run cycle (M2) ----
+    // hold (anchor, cooldown) -> runin (dash to standoff) -> string
+    // (1..N swings) -> runout (backpedal home) -> hold.  Steering never
+    // overrides an in-flight action's own move target (dodge/dash), and
+    // z-depth is eased separately in step() — the sim stays 1-D in x.
+    switch (unit.phase) {
+      case 'hold': {
+        unit.holdIn -= FRAME;
+        unit.rangedIn -= FRAME;
+        if (!busy && !f.action) f.setMoveTarget(unit.anchor.x);
+        if (unit.rangedIn <= 0 && tgt && !busy && !f.shielding && f.canAct(0)) {
+          this._fireVolley(unit, tgt);
+          unit.rangedIn = this._rangedRoll(unit);
+        }
+        if (unit.holdIn <= 0 && tgt && !busy && f.canAct(0) &&
+            this._runners(unit.side) < CY.maxRunners) {
+          unit.phase = 'runin';
+          f.setShielding(false);
+          unit.blockUntil = 0;
+        }
+        break;
+      }
+      case 'runin': {
+        if (!tgt) { unit.phase = 'runout'; break; }
+        const tx = tgt.fighter.root.position.x;
+        const toward = Math.sign(tx - f.root.position.x) || 1;
+        if (!busy && !f.action) {
+          f.setMoveTarget(tx - toward * F.punchRange * B.standoffFrac,
+            CY.runSpeedMult);
+        }
+        if (Math.abs(tx - f.root.position.x) <= F.punchRange) {
+          unit.phase = 'string';
+          unit.stringHits = 0;
+          unit.stringUntil = this.t + CY.stringTimeoutSec;
+        }
+        break;
+      }
+      case 'string': {
+        const done = !tgt || this.t >= unit.stringUntil ||
+                     unit.stringHits >= CY.stringMaxHits;
+        if (done) {
+          if (!f.action) unit.phase = 'runout';   // let the last swing land
+          break;
+        }
+        const tx = tgt.fighter.root.position.x;
+        const toward = Math.sign(tx - f.root.position.x) || 1;
+        if (!busy && !f.action) {
+          f.setMoveTarget(tx - toward * F.punchRange * B.standoffFrac);
+        }
+        break;
+      }
+      case 'runout': {
+        if (!busy && !f.action) {
+          f.setMoveTarget(unit.anchor.x, CY.retreatSpeedMult);
+        }
+        if (Math.abs(f.root.position.x - unit.anchor.x) <= CY.arriveEps) {
+          unit.phase = 'hold';
+          unit.holdIn = this._holdRoll();
+        }
+        break;
+      }
     }
 
     unit.decisionIn -= FRAME;
@@ -321,27 +415,75 @@ export class TeamBattle {
     }
 
     const gap = Math.abs(tgt.fighter.root.position.x - f.root.position.x);
-    if (gap <= F.punchRange) {
+    if (unit.phase === 'string' && gap <= F.punchRange) {
       const r = this.rng();
       if (r < B.aggression) {
         const r2 = this.rng();
-        if (r2 < 0.44) f.jab();
-        else if (r2 < 0.74) f.cross();
-        else if (r2 < 0.92) f.hook();
-        else f.uppercut();
+        let started = false;
+        if (r2 < 0.30) started = f.jab();
+        else if (r2 < 0.52) started = f.cross();
+        else if (r2 < 0.70) started = f.kick();
+        else if (r2 < 0.84) started = f.hook();
+        else if (r2 < 0.94) started = f.roundhouse();
+        else started = f.uppercut();
+        if (started) unit.stringHits++;
       } else {
-        const r3 = this.rng();
-        if (r3 < B.blockChance) {
-          f.setShielding(true);
-          unit.blockUntil = this.t + B.blockDur;
-        } else if (f.hpFrac() < B.lowHpFrac && r3 < B.blockChance + B.dodgeLowHp) {
-          f.dodgeBack(tgt.fighter.root.position.x);
-        }
-        // else: hold ground this beat.
+        this._defenseRoll(unit, tgt);
       }
-    } else if (gap > F.punchRange + 2.5 && this.rng() < 0.5) {
-      f.dashForward(tgt.fighter.root.position.x);
+    } else if (unit.phase !== 'string' && gap <= F.punchRange * 1.4) {
+      // Anchored / retreating units under pressure may still defend —
+      // the vanguard is allowed to block the incoming run.
+      this._defenseRoll(unit, tgt);
     }
+  }
+
+  _defenseRoll(unit, tgt) {
+    const f = unit.fighter;
+    const B = this.cfg.brain;
+    const r3 = this.rng();
+    if (r3 < B.blockChance) {
+      f.setShielding(true);
+      unit.blockUntil = this.t + B.blockDur;
+    } else if (f.hpFrac() < B.lowHpFrac && r3 < B.blockChance + B.dodgeLowHp) {
+      f.dodgeBack(tgt.fighter.root.position.x);
+    }
+    // else: hold ground this beat.
+  }
+
+  _runners(side) {
+    let n = 0;
+    for (const u of this.units) {
+      if (u.side === side && !u.dead &&
+          (u.phase === 'runin' || u.phase === 'string')) n++;
+    }
+    return n;
+  }
+
+  _holdRoll() {
+    return Math.max(0.2, this.cycle.holdCooldownSec +
+      (this.rng() * 2 - 1) * this.cycle.holdJitterSec);
+  }
+
+  _rangedRoll(unit) {
+    const R = this.cfg.ranged[unit.weapon];
+    return Math.max(0.3, R.cooldownSec + (this.rng() * 2 - 1) * R.jitterSec);
+  }
+
+  /** Schedule a volley: the visual flies for fs seconds; the damage tick
+   *  lands at exactly this.t + fs (resolved in step()).  Bolt flight is
+   *  distance-true; the shell's arc is a fixed hang time. */
+  _fireVolley(unit, tgt) {
+    const kind = unit.weapon;
+    const R = this.cfg.ranged[kind];
+    const dx = tgt.fighter.root.position.x - unit.fighter.root.position.x;
+    const dz = tgt.zPos - unit.zPos;
+    const fs = kind === 'shell'
+      ? R.flightSec
+      : Math.max(0.15, Math.hypot(dx, dz) / R.speed);
+    this._volleys.push({ a: unit, v: tgt, kind, arriveAt: this.t + fs });
+    unit.fighter.playShootPose();
+    this._log('volley', { a: unit.id, v: tgt.id, kind,
+      fs: Math.round(fs * 100) / 100 });
   }
 
   /* ---------------- Frame step ---------------- */
@@ -404,6 +546,24 @@ export class TeamBattle {
       }
     }
 
+    // ---- Ranged volleys: damage lands on the arrival tick ----
+    // (attacker's stats.power carries the counter fold vs their CURRENT
+    // target; a mid-flight retarget keeps the old fold — acceptable.)
+    if (this._volleys.length) {
+      const keep = [];
+      for (const p of this._volleys) {
+        if (p.arriveAt > this.t) { keep.push(p); continue; }
+        const v = p.v;
+        if (!v.dead && !v.fighter.isKO()) {
+          const dmg = this.cfg.ranged[p.kind].damage * p.a.fighter.stats.power;
+          const res = v.fighter.takeHit(
+            dmg, p.a.fighter.root.position.x, false, p.kind);
+          this._onDamage(p.a, v, res.dealt || 0, !!res.blocked, p.kind);
+        }
+      }
+      this._volleys = keep;
+    }
+
     // ---- Retarget, decide, resolve — all in initiative order ----
     for (const u of this._order) {
       if (u.dead) continue;
@@ -417,6 +577,19 @@ export class TeamBattle {
       if (u.dead) continue;
       const opp = u.target || u;         // no foes left mid-wave: self-idle
       u.fighter.update(FRAME, opp === u ? u.fighter : opp.fighter);
+    }
+
+    // ---- Depth glide (presentation-only z; the sim is 1-D in x) ----
+    for (const u of this._order) {
+      if (u.dead) continue;
+      const zt = (u.phase === 'runin' || u.phase === 'string')
+        ? (u.target ? u.target.zPos : u.anchor.z)
+        : u.anchor.z;
+      const zSpeed = F.moveSpeed * u.speedMult *
+        (u.phase === 'runin' ? this.cycle.runSpeedMult :
+         u.phase === 'runout' ? this.cycle.retreatSpeedMult : 1);
+      u.zPos += clamp(zt - u.zPos, -zSpeed * FRAME, zSpeed * FRAME);
+      u.fighter.root.position.z = u.zPos;
     }
 
     // ---- KO sweep ----
@@ -462,6 +635,8 @@ export class TeamBattle {
       hp: Math.round(u.fighter.hp * 100) / 100, hpMax: u.hpMax,
       gauge: Math.round(u.gauge * 10) / 10,
       x: Math.round(u.fighter.root.position.x * 100) / 100,
+      z: Math.round(u.zPos * 100) / 100,
+      phase: u.phase,
       dead: u.dead,
     }));
   }

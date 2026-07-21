@@ -24,7 +24,7 @@ const mkClip = (name, dur) => new THREE.AnimationClip(name, dur,
     new Float32Array([...b.r, ...b.r]))));
 const clips = {};
 for (const n of ['idle', 'jab', 'cross', 'hook', 'uppercut', 'shield', 'dodge',
-                 'dash', 'hit', 'ko', 'crouch', 'victory'])
+                 'dash', 'hit', 'ko', 'crouch', 'kick', 'roundhouse', 'victory'])
   clips[n] = mkClip(n, 1);
 
 const assets = {

@@ -26,6 +26,7 @@ import { clamp, damp } from '../utils/math.js';
 import { TeamBattle } from './TeamBattle.js';
 import { BattleScene } from './BattleScene.js';
 import { BrawlCamera } from './BrawlCamera.js';
+import { RangedVolley } from './RangedVolley.js';
 
 const FRAME = 1 / 60;
 const S = () => CONFIG.team.screen;
@@ -66,6 +67,7 @@ export class BattleScreen {
     this.scene = new BattleScene(opts.renderer || null);
     this.scene3 = this.scene.scene;
     this.cam = new BrawlCamera(opts.aspect || 0.5);
+    this.volleys = new RangedVolley(this.scene3);
 
     // ---- Per-unit presentation state ----
     this.vis = new Map();
@@ -267,6 +269,7 @@ export class BattleScreen {
     }
 
     this._updateSparks(dt);
+    this.volleys.update(dt * this.speed);
     this.cam.update(dt, this.battle.units.map(u => u.fighter));
     this._updateConsole();
     this._updateDebug(dt);
@@ -298,6 +301,19 @@ export class BattleScreen {
         case 'supercast':
           this.announcer('SUPER!', 900);
           break;
+        case 'volley': {
+          // Chest-to-chest flight; fs matches the sim's damage tick.
+          const A = this.battle.units.find((u) => u.id === e.a);
+          const V = this.battle.units.find((u) => u.id === e.v);
+          if (!A || !V) break;
+          const CHEST = 1.45;
+          const from = A.fighter.root.position.clone(); from.y += CHEST;
+          const to = V.fighter.root.position.clone(); to.y += CHEST;
+          this.volleys.spawn({
+            from, to, kind: e.kind, side: A.side, flightSec: e.fs,
+          });
+          break;
+        }
         case 'malfunction': {
           const v = this.vis.get(e.u);
           if (v) v.malfUntil = this._wallT + CONFIG.team.malfunction.duration / this.speed;

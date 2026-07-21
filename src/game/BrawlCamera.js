@@ -1,10 +1,11 @@
 /* ============================================================
    BrawlCamera.js — the sidescroll-brawl camera (M1).
 
-   FightCamera generalized: instead of framing exactly two fighters it
-   frames an ARRAY of them — midpoint of the x-extent, distance mapped
-   from the spread — so the same camera carries 1v1 today and 4v4 waves
-   in M3 without touching this file again.
+   M2: a mostly-fixed wide frame at CONFIG.camera.zBase (SFD
+   proportions — units ~19-20% of viewport height, verified by
+   tools/frame_check.mjs).  The only motion is a slow look-x drift
+   toward the weighted action centroid, clamped to panMax, plus the
+   existing shake.  No spread-zoom, no fighting-game chase.
 
    The Chrome-Mobile NaN guards are inherited verbatim from FightCamera:
    that browser's WebGL blanks the whole canvas on a single non-finite
@@ -23,6 +24,7 @@ export class BrawlCamera {
     this.camera.position.set(0, C.heightEye, C.zBase);
     this.camera.lookAt(0, C.heightLook, 0);
     this.shakeAmount = 0;
+    this._lookX = 0;
   }
 
   setAspect(aspect) {
@@ -39,30 +41,29 @@ export class BrawlCamera {
    *  (the screen passes all units, corpses included, so the camera
    *  doesn't snap away from a fresh KO). */
   update(dt, fighters) {
-    let minX = Infinity, maxX = -Infinity;
+    // M2: mostly-FIXED frame.  No spread-zoom, no chase.  A weighted
+    // action centroid — engaged units (near z=0) pull hard, depth-
+    // staggered reserves barely — drives a slow, clamped look-x drift.
+    let sumWX = 0, sumW = 0;
     for (const f of fighters) {
-      const x = f.root.position.x;
-      if (!Number.isFinite(x)) {
+      const x = f.root.position.x, z = f.root.position.z;
+      if (!Number.isFinite(x) || !Number.isFinite(z)) {
         console.warn('[BrawlCamera] non-finite fighter position, skipping frame');
         return;
       }
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
+      const w = Math.abs(z) < 0.8 ? 1 : C.backlineWeight;
+      sumWX += x * w; sumW += w;
     }
-    if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return;
+    if (!(sumW > 0)) return;
 
-    const midX = (minX + maxX) * 0.5 + C.sidePan;
-    const gap = maxX - minX;
+    const focusX = clamp(sumWX / sumW, -C.panMax, C.panMax);
+    this._lookX = damp(this._lookX ?? 0, focusX, C.lookLerp, dt);
 
-    // Same mapping the duel used: spread 0..16 -> [min, max] distance.
-    const t = clamp((gap - 2.0) / 14.0, 0, 1);
-    const desiredZ = C.minDistance + (C.maxDistance - C.minDistance) * t;
+    this.camera.position.x = damp(this.camera.position.x, this._lookX, C.posLerp, dt);
+    this.camera.position.z = C.zBase;
+    this.camera.position.y = damp(this.camera.position.y, C.heightEye, C.posLerp, dt);
 
-    this.camera.position.x = damp(this.camera.position.x, midX, C.positionLerp, dt);
-    this.camera.position.z = damp(this.camera.position.z, desiredZ, C.distanceLerp, dt);
-    this.camera.position.y = damp(this.camera.position.y, C.heightEye, C.positionLerp, dt);
-
-    const look = new THREE.Vector3(midX, C.heightLook, 0);
+    const look = new THREE.Vector3(this._lookX, C.heightLook, 0);
     const m = new THREE.Matrix4().lookAt(this.camera.position, look, new THREE.Vector3(0, 1, 0));
     const q = new THREE.Quaternion().setFromRotationMatrix(m);
     this.camera.quaternion.slerp(q, 1 - Math.exp(-C.lookLerp * dt));

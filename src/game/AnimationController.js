@@ -26,6 +26,8 @@ import * as THREE from 'three';
 const FALLBACKS = {
   super:    'shoot',     // big shoot
   counter:  'dodge',     // parry visual ~ dodge for now
+  kick:     'cross',     // if procedural gen ever fails, degrade to a punch
+  roundhouse: 'hook',
 };
 
 // Which actions should loop forever until stopped.

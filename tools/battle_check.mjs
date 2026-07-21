@@ -39,7 +39,7 @@ const mkClip = (name, dur) => new THREE.AnimationClip(name, dur,
     new Float32Array([...b.r, ...b.r]))));
 const clips = {};
 for (const n of ['idle', 'jab', 'cross', 'hook', 'uppercut', 'shield', 'dodge',
-                 'dash', 'hit', 'ko', 'crouch', 'victory'])
+                 'dash', 'hit', 'ko', 'crouch', 'kick', 'roundhouse', 'victory'])
   clips[n] = mkClip(n, 1);
 const assets = {
   clips,
@@ -225,6 +225,52 @@ ok(rA.t < CONFIG.team.timeoutSec, `...and ends well before the ${CONFIG.team.tim
   const durations = [7, 42].map(s => canonical(s).run());
   ok(durations.every(r => r.t >= 120 && r.reason === 'ko'),
      `shape holds across seeds (${durations.map(r => r.t + 's').join(', ')})`);
+  // M2 pacing locks — tuned by measurement (8 seeds: 180-237s, all KO).
+  ok(rA.t <= 260, `canonical stays clear of the timeout ceiling (${rA.t}s <= 260s)`);
+  const hpm = rA.log.filter(e => e.type === 'hit' && e.dmg > 0).length / (rA.t / 60);
+  ok(hpm >= 40 && hpm <= 100,
+     `hit cadence in the tuned band (${hpm.toFixed(1)} hits/min in 40..100)`);
+}
+
+/* ============ 7b. The duel window (M2) ============ */
+// 1v1 runs the tighter cycle.duel loop; measured 70-99s across 8 seeds
+// with mixed winners (blue vs red is a fair matchup).
+console.log('-- Duel window --');
+{
+  const duel = (seed) => new TeamBattle({
+    seed, assets,
+    playerTeam: [{ set: 'blue' }],
+    waves: [[{ set: 'red' }]],
+  }).run();
+  const rs = [1, 2, 3].map(duel);
+  ok(rs.every(r => r.reason === 'ko'), 'duels end by KO');
+  ok(rs.every(r => r.t >= 45 && r.t <= 110),
+     `duels land in the 45-110s window (${rs.map(r => r.t.toFixed(0) + 's').join(', ')})`);
+}
+
+/* ============ 7c. Ranged volleys (M2) ============ */
+console.log('-- Ranged volleys --');
+{
+  const vols = rA.log.filter(e => e.type === 'volley');
+  ok(vols.length >= 40, `anchors keep the air busy (${vols.length} volleys)`);
+  ok(vols.every(v => v.kind === 'bolt' || v.kind === 'shell'),
+     'every volley is a bolt or a shell');
+  // Damage lands on the arrival tick: each volley's flight seconds are
+  // honored — find a matching bolt/shell hit at ~t+fs for the openers.
+  let timed = 0, checked = 0;
+  for (const v of vols.slice(0, 12)) {
+    checked++;
+    const lands = rA.log.some(e => e.type === 'hit' &&
+      e.a === v.a && e.act === v.kind &&
+      Math.abs(e.t - (v.t + v.fs)) < 0.05);
+    if (lands) timed++;
+  }
+  // Not every volley connects (target may die mid-flight), but most of
+  // the opening dozen should land on schedule.
+  ok(timed >= checked * 0.6,
+     `volley damage lands on the arrival tick (${timed}/${checked} on schedule)`);
+  const hitKinds = new Set(rA.log.filter(e => e.type === 'hit').map(e => e.act));
+  ok(hitKinds.has('bolt'), 'bolt chip damage appears in the log');
 }
 
 /* ============ 8. Timeout path ============ */
